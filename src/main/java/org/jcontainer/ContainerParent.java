@@ -2,13 +2,15 @@ package org.jcontainer;
 
 import org.jcontainer.runtime.ContainerRuntime;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
 /**
  * Parent process: sets up namespaces (Linux), optionally configures cgroups
  * and networking, pulls images if needed, and spawns the child process.
+ * Registers the container for lifecycle management.
  */
 public class ContainerParent {
 
@@ -70,11 +72,27 @@ public class ContainerParent {
         }
 
         // Spawn the child process
+        ContainerRegistry registry = new ContainerRegistry();
+        ContainerState containerState = null;
         NetworkManager network = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(childCmd);
-            pb.inheritIO();
+            // Redirect stdin from parent, capture stdout/stderr for logging
+            pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
             Process process = pb.start();
+
+            // Register container for lifecycle tracking
+            containerState = ContainerState.create(
+                    rootfs, config.image(), config.command(), process.pid());
+            registry.register(containerState);
+            System.err.println("Container " + containerState.id() + " started (PID " + process.pid() + ")");
+
+            // Tee stdout and stderr to log files and terminal
+            Path containerDir = registry.getContainerDir(containerState.id());
+            Thread stdoutThread = teeStream(process.getInputStream(), System.out,
+                    containerDir.resolve("stdout.log"));
+            Thread stderrThread = teeStream(process.getErrorStream(), System.err,
+                    containerDir.resolve("stderr.log"));
 
             // Add child to cgroup after it starts
             if (cgroup != null) {
@@ -98,9 +116,21 @@ public class ContainerParent {
             }
 
             int exitCode = process.waitFor();
+            stdoutThread.join(5000);
+            stderrThread.join(5000);
+
+            // Update container state
+            registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, exitCode);
+
             System.exit(exitCode);
         } catch (IOException | InterruptedException e) {
             System.err.println("ERROR: " + e.getMessage());
+            if (containerState != null) {
+                try {
+                    registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, 1);
+                } catch (IOException ignored) {
+                }
+            }
             System.exit(1);
         } finally {
             if (network != null) {
@@ -110,6 +140,30 @@ public class ContainerParent {
                 cgroup.close();
             }
         }
+    }
+
+    /**
+     * Spawn a thread that reads from an input stream and writes to both
+     * a terminal output stream and a log file.
+     */
+    static Thread teeStream(InputStream input, OutputStream terminal, Path logFile) {
+        Thread thread = new Thread(() -> {
+            try (OutputStream log = Files.newOutputStream(logFile)) {
+                byte[] buffer = new byte[4096];
+                int bytesRead;
+                while ((bytesRead = input.read(buffer)) != -1) {
+                    terminal.write(buffer, 0, bytesRead);
+                    terminal.flush();
+                    log.write(buffer, 0, bytesRead);
+                    log.flush();
+                }
+            } catch (IOException ignored) {
+                // Stream closed — expected on process exit
+            }
+        }, "tee-" + logFile.getFileName());
+        thread.setDaemon(true);
+        thread.start();
+        return thread;
     }
 
     static String resolveJavaPath() {
