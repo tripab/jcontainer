@@ -8,7 +8,7 @@ import org.jcontainer.runtime.MacOSRuntime;
  * JContainer — a basic container runtime in Java.
  *
  * Usage:
- *   java JContainer run   <rootfs> <command> [args...]
+ *   java JContainer run [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]
  *   java JContainer child <rootfs> <command> [args...]  (internal, invoked by parent)
  */
 public class JContainer {
@@ -44,6 +44,6 @@ public class JContainer {
     }
 
     private static void usage() {
-        System.err.println("Usage: java org.jcontainer.JContainer run <rootfs> <command> [args...]");
+        System.err.println("Usage: java org.jcontainer.JContainer run [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]");
     }
 }
