@@ -37,6 +37,11 @@ class LinuxConstantsTest {
     }
 
     @Test
+    void testCloneNewnet() {
+        assertEquals(0x40000000, LinuxConstants.CLONE_NEWNET);
+    }
+
+    @Test
     void testMntDetach() {
         assertEquals(2, LinuxConstants.MNT_DETACH);
     }

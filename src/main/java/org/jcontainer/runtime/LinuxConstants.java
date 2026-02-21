@@ -19,6 +19,7 @@ public final class LinuxConstants {
     public static final int CLONE_NEWNS  = 0x00020000;
     public static final int CLONE_NEWUTS = 0x04000000;
     public static final int CLONE_NEWPID = 0x20000000;
+    public static final int CLONE_NEWNET = 0x40000000;
 
     // Syscall numbers for pivot_root (no libc wrapper exists)
     public static final long SYS_PIVOT_ROOT_X86_64  = 155L;

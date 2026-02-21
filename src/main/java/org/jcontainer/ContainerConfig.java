@@ -8,9 +8,10 @@ import java.util.List;
  * Parsed container configuration from command-line arguments.
  * Handles optional --memory and --cpu flags before the positional rootfs and command args.
  *
- * Usage: run [--memory SIZE] [--cpu PERCENT] rootfs command [args...]
+ * Usage: run [--net] [--memory SIZE] [--cpu PERCENT] rootfs command [args...]
  */
-public record ContainerConfig(String rootfs, String[] command, Long memoryBytes, Integer cpuPercent) {
+public record ContainerConfig(String rootfs, String[] command, Long memoryBytes, Integer cpuPercent,
+                               boolean networkEnabled) {
 
     /**
      * Parse args after the mode (e.g., after "run" has been consumed).
@@ -21,6 +22,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
         // args[0] is the mode ("run"), skip it
         Long memory = null;
         Integer cpu = null;
+        boolean net = false;
         List<String> positional = new ArrayList<>();
 
         int i = 1; // skip mode
@@ -41,6 +43,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
                         throw new IllegalArgumentException("--cpu must be positive, got: " + cpu);
                     }
                 }
+                case "--net" -> net = true;
                 default -> {
                     // Once we hit a non-flag arg, everything remaining is positional
                     positional.addAll(Arrays.asList(args).subList(i, args.length));
@@ -58,7 +61,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
 
         String rootfs = positional.get(0);
         String[] command = positional.subList(1, positional.size()).toArray(String[]::new);
-        return new ContainerConfig(rootfs, command, memory, cpu);
+        return new ContainerConfig(rootfs, command, memory, cpu, net);
     }
 
     public boolean hasResourceLimits() {

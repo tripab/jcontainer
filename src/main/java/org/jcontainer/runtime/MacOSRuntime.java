@@ -13,7 +13,8 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command) {
+                                          String rootfs, String[] command,
+                                          boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaPath);
         cmd.add("--enable-native-access=ALL-UNNAMED");

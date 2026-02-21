@@ -14,7 +14,7 @@ class MacOSRuntimeTest {
     void testBuildChildCommandNoUnshare() {
         List<String> cmd = runtime.buildChildCommand(
                 "/usr/bin/java", "/app/classes", "/rootfs",
-                new String[]{"/bin/sh"});
+                new String[]{"/bin/sh"}, false);
 
         assertFalse(cmd.contains("unshare"), "macOS command should not contain unshare");
     }
@@ -23,7 +23,7 @@ class MacOSRuntimeTest {
     void testBuildChildCommandStructure() {
         List<String> cmd = runtime.buildChildCommand(
                 "/usr/bin/java", "/app/classes", "/rootfs",
-                new String[]{"/bin/sh", "-c", "echo hi"});
+                new String[]{"/bin/sh", "-c", "echo hi"}, false);
 
         assertEquals("/usr/bin/java", cmd.get(0));
         assertEquals("--enable-native-access=ALL-UNNAMED", cmd.get(1));
@@ -48,5 +48,16 @@ class MacOSRuntimeTest {
     void testSetHostnameIsNoOp() {
         // Should complete without error (no-op on macOS)
         assertDoesNotThrow(() -> runtime.setHostname("test-container"));
+    }
+
+    @Test
+    void testBuildChildCommandIgnoresNetworkFlag() {
+        List<String> cmd = runtime.buildChildCommand(
+                "/usr/bin/java", "/app/classes", "/rootfs",
+                new String[]{"/bin/sh"}, true);
+
+        // macOS ignores networkEnabled — no --net, no unshare
+        assertFalse(cmd.contains("--net"));
+        assertFalse(cmd.contains("unshare"));
     }
 }

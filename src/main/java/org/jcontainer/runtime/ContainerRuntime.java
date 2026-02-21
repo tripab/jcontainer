@@ -12,9 +12,12 @@ public interface ContainerRuntime {
      * Build the command list to spawn the child process.
      * On Linux, this wraps with {@code unshare --pid --fork} for PID namespace.
      * On macOS, this is a plain Java invocation.
+     *
+     * @param networkEnabled if true, the child is spawned in a new network namespace (Linux only)
      */
     List<String> buildChildCommand(String javaPath, String classpath,
-                                   String rootfs, String[] command);
+                                   String rootfs, String[] command,
+                                   boolean networkEnabled);
 
     /**
      * Set up the parent process before spawning the child.

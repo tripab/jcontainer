@@ -15,6 +15,7 @@ class ContainerConfigTest {
         assertNull(config.memoryBytes());
         assertNull(config.cpuPercent());
         assertFalse(config.hasResourceLimits());
+        assertFalse(config.networkEnabled());
     }
 
     @Test
@@ -110,5 +111,31 @@ class ContainerConfigTest {
     void testParseCpuMissingValueThrows() {
         assertThrows(IllegalArgumentException.class,
                 () -> ContainerConfig.parse(new String[]{"run", "--cpu"}));
+    }
+
+    @Test
+    void testParseWithNetFlag() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "/rootfs", "/bin/sh"});
+        assertTrue(config.networkEnabled());
+        assertEquals("/rootfs", config.rootfs());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
+    void testParseWithNetAndOtherFlags() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--memory", "100m", "--cpu", "50", "/rootfs", "/bin/sh"});
+        assertTrue(config.networkEnabled());
+        assertEquals(100L * 1024 * 1024, config.memoryBytes());
+        assertEquals(50, config.cpuPercent());
+        assertEquals("/rootfs", config.rootfs());
+    }
+
+    @Test
+    void testParseWithoutNetFlag() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--memory", "100m", "/rootfs", "/bin/sh"});
+        assertFalse(config.networkEnabled());
     }
 }

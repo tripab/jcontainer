@@ -7,8 +7,8 @@ import java.nio.file.Path;
 import java.util.List;
 
 /**
- * Parent process: sets up namespaces (Linux), optionally configures cgroups,
- * and spawns the child process.
+ * Parent process: sets up namespaces (Linux), optionally configures cgroups
+ * and networking, and spawns the child process.
  */
 public class ContainerParent {
 
@@ -26,7 +26,8 @@ public class ContainerParent {
 
         // Build the child command (Linux: wrapped with unshare; macOS: plain java)
         List<String> childCmd = runtime.buildChildCommand(
-                javaPath, classpath, config.rootfs(), config.command());
+                javaPath, classpath, config.rootfs(), config.command(),
+                config.networkEnabled());
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
@@ -49,7 +50,13 @@ public class ContainerParent {
             System.err.println("WARNING: Resource limits (--memory, --cpu) are only supported on Linux.");
         }
 
+        // Warn about --net on macOS
+        if (config.networkEnabled() && !JContainer.isLinux()) {
+            System.err.println("WARNING: Network namespace (--net) is only supported on Linux.");
+        }
+
         // Spawn the child process
+        NetworkManager network = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(childCmd);
             pb.inheritIO();
@@ -64,12 +71,27 @@ public class ContainerParent {
                 }
             }
 
+            // Set up networking after child starts (needs child PID for namespace)
+            if (config.networkEnabled() && JContainer.isLinux()) {
+                network = new NetworkManager();
+                try {
+                    network.setup(process.pid());
+                } catch (IOException e) {
+                    System.err.println("WARNING: Failed to set up container networking: " + e.getMessage());
+                    network.close();
+                    network = null;
+                }
+            }
+
             int exitCode = process.waitFor();
             System.exit(exitCode);
         } catch (IOException | InterruptedException e) {
             System.err.println("ERROR: " + e.getMessage());
             System.exit(1);
         } finally {
+            if (network != null) {
+                network.close();
+            }
             if (cgroup != null) {
                 cgroup.close();
             }

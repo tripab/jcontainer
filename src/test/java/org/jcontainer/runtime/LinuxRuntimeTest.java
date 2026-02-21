@@ -14,7 +14,7 @@ class LinuxRuntimeTest {
     void testBuildChildCommandStructure() {
         List<String> cmd = runtime.buildChildCommand(
                 "/usr/bin/java", "/app/target/classes", "/app/rootfs",
-                new String[]{"/bin/sh", "-c", "echo hello"});
+                new String[]{"/bin/sh", "-c", "echo hello"}, false);
 
         assertEquals("unshare", cmd.get(0));
         assertEquals("--pid", cmd.get(1));
@@ -32,7 +32,7 @@ class LinuxRuntimeTest {
     void testBuildChildCommandPreservesUserArgs() {
         String[] userCmd = {"/bin/sh", "-c", "echo hello"};
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/classes", "/rootfs", userCmd);
+                "/usr/bin/java", "/app/classes", "/rootfs", userCmd, false);
 
         // User command starts at index 10
         assertEquals("/bin/sh", cmd.get(10));
@@ -44,8 +44,28 @@ class LinuxRuntimeTest {
     @Test
     void testBuildChildCommandIncludesNativeAccess() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"});
+                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, false);
 
         assertTrue(cmd.contains("--enable-native-access=ALL-UNNAMED"));
+    }
+
+    @Test
+    void testBuildChildCommandWithNetworkEnabled() {
+        List<String> cmd = runtime.buildChildCommand(
+                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, true);
+
+        assertEquals("unshare", cmd.get(0));
+        assertEquals("--pid", cmd.get(1));
+        assertEquals("--net", cmd.get(2));
+        assertEquals("--fork", cmd.get(3));
+        assertTrue(cmd.contains("--net"), "Command should contain --net flag");
+    }
+
+    @Test
+    void testBuildChildCommandWithoutNetworkHasNoNetFlag() {
+        List<String> cmd = runtime.buildChildCommand(
+                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, false);
+
+        assertFalse(cmd.contains("--net"), "Command should NOT contain --net flag");
     }
 }
