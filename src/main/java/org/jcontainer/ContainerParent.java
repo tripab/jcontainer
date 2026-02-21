@@ -8,7 +8,7 @@ import java.util.List;
 
 /**
  * Parent process: sets up namespaces (Linux), optionally configures cgroups
- * and networking, and spawns the child process.
+ * and networking, pulls images if needed, and spawns the child process.
  */
 public class ContainerParent {
 
@@ -16,6 +16,20 @@ public class ContainerParent {
 
     public static void run(ContainerRuntime runtime, String[] args) {
         ContainerConfig config = ContainerConfig.parse(args);
+
+        // Pull image if --image was specified
+        String rootfs = config.rootfs();
+        if (config.hasImage()) {
+            try {
+                ImageRef ref = ImageRef.parse(config.image());
+                ImageManager imageManager = new ImageManager();
+                Path rootfsPath = imageManager.pull(ref);
+                rootfs = rootfsPath.toString();
+            } catch (IOException | InterruptedException e) {
+                System.err.println("ERROR: Failed to pull image: " + e.getMessage());
+                System.exit(1);
+            }
+        }
 
         // Set up parent-side isolation (Linux: unshare UTS+MNT; macOS: no-op)
         runtime.setupParent();
@@ -26,7 +40,7 @@ public class ContainerParent {
 
         // Build the child command (Linux: wrapped with unshare; macOS: plain java)
         List<String> childCmd = runtime.buildChildCommand(
-                javaPath, classpath, config.rootfs(), config.command(),
+                javaPath, classpath, rootfs, config.command(),
                 config.networkEnabled());
 
         // Set up cgroups if resource limits specified (Linux only)

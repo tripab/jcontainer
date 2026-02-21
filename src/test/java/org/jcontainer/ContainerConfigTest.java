@@ -138,4 +138,59 @@ class ContainerConfigTest {
                 new String[]{"run", "--memory", "100m", "/rootfs", "/bin/sh"});
         assertFalse(config.networkEnabled());
     }
+
+    @Test
+    void testParseWithImageFlag() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--image", "alpine:latest", "/bin/sh"});
+        assertEquals("alpine:latest", config.image());
+        assertTrue(config.hasImage());
+        assertNull(config.rootfs());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
+    void testParseWithImageAndOtherFlags() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--image", "alpine:3.19", "--net", "--memory", "100m", "--cpu", "50", "/bin/sh"});
+        assertEquals("alpine:3.19", config.image());
+        assertTrue(config.networkEnabled());
+        assertEquals(100L * 1024 * 1024, config.memoryBytes());
+        assertEquals(50, config.cpuPercent());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
+    void testParseWithImageCommandArgs() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--image", "alpine", "/bin/sh", "-c", "echo hi"});
+        assertEquals("alpine", config.image());
+        assertArrayEquals(new String[]{"/bin/sh", "-c", "echo hi"}, config.command());
+    }
+
+    @Test
+    void testParseWithImageNoCommandThrows() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ContainerConfig.parse(new String[]{"run", "--image", "alpine"}));
+    }
+
+    @Test
+    void testParseImageMissingValueThrows() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ContainerConfig.parse(new String[]{"run", "--image"}));
+    }
+
+    @Test
+    void testParseWithoutImageHasNoImage() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "/rootfs", "/bin/sh"});
+        assertNull(config.image());
+        assertFalse(config.hasImage());
+    }
+
+    @Test
+    void testParseWithoutImageStillRequiresRootfs() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ContainerConfig.parse(new String[]{"run", "/bin/sh"}));
+    }
 }

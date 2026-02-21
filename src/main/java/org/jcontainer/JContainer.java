@@ -14,7 +14,7 @@ import org.jcontainer.runtime.MacOSRuntime;
 public class JContainer {
 
     public static void main(String[] args) {
-        if (args.length < 3) {
+        if (args.length < 2) {
             usage();
             System.exit(1);
         }
@@ -44,6 +44,6 @@ public class JContainer {
     }
 
     private static void usage() {
-        System.err.println("Usage: java org.jcontainer.JContainer run [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]");
+        System.err.println("Usage: java org.jcontainer.JContainer run [--image IMAGE] [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]");
     }
 }
