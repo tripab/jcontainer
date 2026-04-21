@@ -3,18 +3,20 @@ package org.jcontainer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.nio.file.Path;
 
 /**
  * Parsed container configuration from command-line arguments.
  * Handles optional flags before the positional rootfs and command args.
  *
- * Usage: run [--image IMAGE] [--net] [--memory SIZE] [--cpu PERCENT] [rootfs] command [args...]
+ * Usage: run [--image IMAGE] [--net] [--memory SIZE] [--cpu PERCENT]
+ *            [--autotune-config FILE] [rootfs] command [args...]
  *
  * When --image is provided, rootfs is optional (image is extracted to cache).
  * When --image is absent, rootfs is required.
  */
 public record ContainerConfig(String rootfs, String[] command, Long memoryBytes, Integer cpuPercent,
-                               boolean networkEnabled, String image) {
+                              boolean networkEnabled, String image, Path autotuneConfig) {
 
     /**
      * Parse args after the mode (e.g., after "run" has been consumed).
@@ -25,6 +27,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
         Integer cpu = null;
         boolean net = false;
         String image = null;
+        Path autotuneConfig = null;
         List<String> positional = new ArrayList<>();
 
         int i = 1; // skip mode
@@ -51,6 +54,12 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
                         throw new IllegalArgumentException("--image requires a value");
                     }
                     image = args[++i];
+                }
+                case "--autotune-config" -> {
+                    if (i + 1 >= args.length) {
+                        throw new IllegalArgumentException("--autotune-config requires a value");
+                    }
+                    autotuneConfig = Path.of(args[++i]);
                 }
                 default -> {
                     // Once we hit a non-flag arg, everything remaining is positional
@@ -83,7 +92,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
             command = positional.subList(1, positional.size()).toArray(String[]::new);
         }
 
-        return new ContainerConfig(rootfs, command, memory, cpu, net, image);
+        return new ContainerConfig(rootfs, command, memory, cpu, net, image, autotuneConfig);
     }
 
     public boolean hasResourceLimits() {
@@ -92,6 +101,10 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
 
     public boolean hasImage() {
         return image != null;
+    }
+
+    public boolean hasAutotuneConfig() {
+        return autotuneConfig != null;
     }
 
     /**
