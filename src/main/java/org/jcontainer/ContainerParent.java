@@ -45,10 +45,13 @@ public class ContainerParent {
                 javaPath, classpath, rootfs, config.command(),
                 config.networkEnabled());
 
+        ContainerState containerState = ContainerState.createPending(
+                rootfs, config.image(), config.command());
+
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
         if (config.hasResourceLimits() && JContainer.isLinux()) {
-            cgroup = new CgroupManager(CGROUP_ROOT);
+            cgroup = createCgroupManager(CGROUP_ROOT, containerState);
             try {
                 cgroup.create();
                 if (config.memoryBytes() != null) {
@@ -73,7 +76,6 @@ public class ContainerParent {
 
         // Spawn the child process
         ContainerRegistry registry = new ContainerRegistry();
-        ContainerState containerState = null;
         NetworkManager network = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(childCmd);
@@ -82,8 +84,7 @@ public class ContainerParent {
             Process process = pb.start();
 
             // Register container for lifecycle tracking
-            containerState = ContainerState.create(
-                    rootfs, config.image(), config.command(), process.pid());
+            containerState = containerState.withPid(process.pid());
             registry.register(containerState);
             System.err.println("Container " + containerState.id() + " started (PID " + process.pid() + ")");
 
@@ -173,5 +174,9 @@ public class ContainerParent {
 
     static String resolveClasspath() {
         return System.getProperty("java.class.path");
+    }
+
+    static CgroupManager createCgroupManager(Path cgroupRoot, ContainerState containerState) {
+        return new CgroupManager(cgroupRoot, containerState.id());
     }
 }

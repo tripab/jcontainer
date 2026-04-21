@@ -48,10 +48,37 @@ public record ContainerState(
     }
 
     /**
+     * Create a container state before the child process is started.
+     * The PID is filled in later once the process exists.
+     */
+    public static ContainerState createPending(String rootfs, String image, String[] command) {
+        return new ContainerState(
+                generateId(),
+                -1,
+                Instant.now().toString(),
+                rootfs,
+                image,
+                command,
+                STATUS_RUNNING,
+                null
+        );
+    }
+
+    /**
      * Return a new ContainerState with updated status and exit code.
      */
     public ContainerState withStatus(String newStatus, Integer newExitCode) {
         return new ContainerState(id, pid, startTime, rootfs, image, command, newStatus, newExitCode);
+    }
+
+    /**
+     * Return a new ContainerState with the runtime child PID populated.
+     */
+    public ContainerState withPid(long newPid) {
+        if (newPid <= 0) {
+            throw new IllegalArgumentException("Container PID must be positive");
+        }
+        return new ContainerState(id, newPid, startTime, rootfs, image, command, status, exitCode);
     }
 
     /**

@@ -30,6 +30,16 @@ class ContainerStateTest {
     }
 
     @Test
+    void testCreatePendingUsesPlaceholderPid() {
+        ContainerState state = ContainerState.createPending("/rootfs", "alpine:latest",
+                new String[]{"/bin/sh"});
+        assertNotNull(state.id());
+        assertEquals(8, state.id().length());
+        assertEquals(-1, state.pid());
+        assertEquals(ContainerState.STATUS_RUNNING, state.status());
+    }
+
+    @Test
     void testGenerateIdIsHex() {
         String id = ContainerState.generateId();
         assertEquals(8, id.length());
@@ -101,6 +111,27 @@ class ContainerStateTest {
         assertEquals(state.image(), updated.image());
         assertArrayEquals(state.command(), updated.command());
         assertEquals(state.startTime(), updated.startTime());
+    }
+
+    @Test
+    void testWithPidPreservesStableIdAndUpdatesPid() {
+        ContainerState pending = ContainerState.createPending("/rootfs", "alpine:3.19",
+                new String[]{"/bin/sh"});
+
+        ContainerState running = pending.withPid(4242);
+
+        assertEquals(pending.id(), running.id());
+        assertEquals(4242, running.pid());
+        assertEquals(pending.startTime(), running.startTime());
+        assertEquals(pending.status(), running.status());
+    }
+
+    @Test
+    void testWithPidRejectsNonPositivePid() {
+        ContainerState pending = ContainerState.createPending("/rootfs", null,
+                new String[]{"/bin/sh"});
+
+        assertThrows(IllegalArgumentException.class, () -> pending.withPid(0));
     }
 
     @Test
