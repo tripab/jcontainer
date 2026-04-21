@@ -2,7 +2,6 @@ package org.jcontainer.runtime;
 
 import org.jcontainer.ResolvedExecutable;
 
-import java.io.IOException;
 import java.lang.foreign.Arena;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -61,14 +60,16 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(executable.argv());
-            pb.inheritIO();
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to execute command", e);
+        exec(executable);
+    }
+
+    protected void exec(ResolvedExecutable executable) {
+        try (Arena arena = Arena.ofConfined()) {
+            int rc = Syscalls.execv(arena, executable.path(), executable.argv());
+            throw new RuntimeException(
+                    "execv(" + executable.path() + ") returned unexpectedly with rc=" + rc);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("Failed to execute command via execv: " + executable.path(), e);
         }
     }
 }

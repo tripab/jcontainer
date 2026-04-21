@@ -1,8 +1,10 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -71,5 +73,34 @@ class MacOSRuntimeTest {
         assertEquals("--seccomp-policy", cmd.get(6));
         assertEquals("/tmp/policy.json", cmd.get(7));
         assertEquals("/rootfs", cmd.get(8));
+    }
+
+    @Test
+    void testExecCommandUsesNativeExecv() {
+        RecordingMacOSRuntime runtime = new RecordingMacOSRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh", "-c", "echo hi"});
+
+        runtime.execCommand(executable, null);
+
+        assertEquals(List.of("exec:/bin/sh"), runtime.events);
+    }
+
+    @Test
+    void testExecCommandPreservesBehaviorWhenSeccompPolicyIsPresent() {
+        RecordingMacOSRuntime runtime = new RecordingMacOSRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh"});
+
+        runtime.execCommand(executable, Path.of("/tmp/policy.json"));
+
+        assertEquals(List.of("exec:/bin/sh"), runtime.events);
+    }
+
+    private static final class RecordingMacOSRuntime extends MacOSRuntime {
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        protected void exec(ResolvedExecutable executable) {
+            events.add("exec:" + executable.path());
+        }
     }
 }
