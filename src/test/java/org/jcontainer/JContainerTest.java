@@ -34,4 +34,12 @@ class JContainerTest {
             assertFalse(JContainer.isLinux());
         }
     }
+
+    @Test
+    void testUsageTextIncludesAutotuneConfigFlag() {
+        String usage = JContainer.usageText();
+
+        assertTrue(usage.contains("--autotune-config FILE"));
+        assertTrue(usage.contains("java org.jcontainer.JContainer run"));
+    }
 }
