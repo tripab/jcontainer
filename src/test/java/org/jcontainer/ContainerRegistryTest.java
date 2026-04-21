@@ -39,6 +39,7 @@ class ContainerRegistryTest {
         assertEquals(state.id(), loaded.id());
         assertEquals(state.rootfs(), loaded.rootfs());
         assertEquals(state.image(), loaded.image());
+        assertEquals(state.autotuneConfigPath(), loaded.autotuneConfigPath());
     }
 
     @Test

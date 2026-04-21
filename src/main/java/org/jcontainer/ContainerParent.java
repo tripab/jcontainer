@@ -18,14 +18,16 @@ public class ContainerParent {
 
     public static void run(ContainerRuntime runtime, String[] args) {
         ContainerConfig config = ContainerConfig.parse(args);
+        AutotuneConfig autotuneConfig = null;
 
         if (config.hasAutotuneConfig() && JContainer.isLinux()) {
             try {
+                autotuneConfig = loadAutotuneConfig(config);
                 AutotunePreflight preflight = verifyLinuxAutotunePreflight(CGROUP_ROOT);
                 if (!preflight.psiAvailable()) {
                     System.err.println("WARNING: PSI metrics are unavailable; autotune will continue without pressure signals.");
                 }
-            } catch (IOException | IllegalStateException e) {
+            } catch (IOException | IllegalArgumentException | IllegalStateException e) {
                 System.err.println("ERROR: " + e.getMessage());
                 System.exit(1);
             }
@@ -58,11 +60,12 @@ public class ContainerParent {
                 config.networkEnabled());
 
         ContainerState containerState = ContainerState.createPending(
-                rootfs, config.image(), config.command());
+                rootfs, config.image(), config.command())
+                .withAutotuneConfig(config.autotuneConfig());
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
-        if (config.hasResourceLimits() && JContainer.isLinux()) {
+        if (JContainer.isLinux() && (config.hasResourceLimits() || autotuneConfig != null)) {
             cgroup = createCgroupManager(CGROUP_ROOT, containerState);
             try {
                 cgroup.create();
@@ -73,6 +76,11 @@ public class ContainerParent {
                     cgroup.setCpuLimit(config.cpuPercent());
                 }
             } catch (IOException e) {
+                if (autotuneConfig != null) {
+                    System.err.println("ERROR: Failed to configure cgroups for autotune: " + e.getMessage());
+                    cgroup.close();
+                    System.exit(1);
+                }
                 System.err.println("WARNING: Failed to configure cgroups: " + e.getMessage());
                 cgroup.close();
                 cgroup = null;
@@ -89,6 +97,7 @@ public class ContainerParent {
         // Spawn the child process
         ContainerRegistry registry = new ContainerRegistry();
         NetworkManager network = null;
+        AutotuneLoop autotuneLoop = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(childCmd);
             // Redirect stdin from parent, capture stdout/stderr for logging
@@ -122,10 +131,22 @@ public class ContainerParent {
                 try {
                     network.setup(process.pid());
                 } catch (IOException e) {
+                    if (autotuneConfig != null) {
+                        throw new IllegalStateException(
+                                "Failed to set up container networking for autotune: " + e.getMessage(), e);
+                    }
                     System.err.println("WARNING: Failed to set up container networking: " + e.getMessage());
                     network.close();
                     network = null;
                 }
+            }
+
+            if (autotuneConfig != null) {
+                if (cgroup == null) {
+                    throw new IllegalStateException("Autotune requires an active cgroup manager");
+                }
+                autotuneLoop = createAutotuneLoop(containerState, autotuneConfig, cgroup);
+                autotuneLoop.start();
             }
 
             int exitCode = process.waitFor();
@@ -136,7 +157,7 @@ public class ContainerParent {
             registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, exitCode);
 
             System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | IllegalStateException e) {
             System.err.println("ERROR: " + e.getMessage());
             if (containerState != null) {
                 try {
@@ -146,6 +167,9 @@ public class ContainerParent {
             }
             System.exit(1);
         } finally {
+            if (autotuneLoop != null) {
+                autotuneLoop.close();
+            }
             if (network != null) {
                 network.close();
             }
@@ -190,6 +214,21 @@ public class ContainerParent {
 
     static CgroupManager createCgroupManager(Path cgroupRoot, ContainerState containerState) {
         return new CgroupManager(cgroupRoot, containerState.id());
+    }
+
+    static AutotuneConfig loadAutotuneConfig(ContainerConfig config) throws IOException {
+        if (!config.hasAutotuneConfig()) {
+            return null;
+        }
+        if (!config.networkEnabled()) {
+            throw new IllegalArgumentException("Autotune requires --net for host-side probing.");
+        }
+        return AutotuneConfig.load(config.autotuneConfig());
+    }
+
+    static AutotuneLoop createAutotuneLoop(ContainerState containerState, AutotuneConfig autotuneConfig,
+                                           CgroupManager cgroupManager) {
+        return new AutotuneLoop(containerState, autotuneConfig, cgroupManager);
     }
 
     static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot) throws IOException {

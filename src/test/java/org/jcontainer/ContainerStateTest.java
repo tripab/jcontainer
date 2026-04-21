@@ -24,6 +24,7 @@ class ContainerStateTest {
         assertEquals("/rootfs", state.rootfs());
         assertEquals("alpine:latest", state.image());
         assertArrayEquals(new String[]{"/bin/sh"}, state.command());
+        assertNull(state.autotuneConfigPath());
         assertEquals(ContainerState.STATUS_RUNNING, state.status());
         assertNull(state.exitCode());
         assertNotNull(state.startTime());
@@ -68,6 +69,7 @@ class ContainerStateTest {
         assertEquals(state.rootfs(), loaded.rootfs());
         assertEquals(state.image(), loaded.image());
         assertArrayEquals(state.command(), loaded.command());
+        assertEquals(state.autotuneConfigPath(), loaded.autotuneConfigPath());
         assertEquals(state.status(), loaded.status());
         assertEquals(state.startTime(), loaded.startTime());
     }
@@ -110,6 +112,7 @@ class ContainerStateTest {
         assertEquals(state.rootfs(), updated.rootfs());
         assertEquals(state.image(), updated.image());
         assertArrayEquals(state.command(), updated.command());
+        assertEquals(state.autotuneConfigPath(), updated.autotuneConfigPath());
         assertEquals(state.startTime(), updated.startTime());
     }
 
@@ -123,6 +126,7 @@ class ContainerStateTest {
         assertEquals(pending.id(), running.id());
         assertEquals(4242, running.pid());
         assertEquals(pending.startTime(), running.startTime());
+        assertEquals(pending.autotuneConfigPath(), running.autotuneConfigPath());
         assertEquals(pending.status(), running.status());
     }
 
@@ -144,6 +148,20 @@ class ContainerStateTest {
         state.save(dir);
         ContainerState loaded = ContainerState.load(dir);
         assertNull(loaded.image());
+    }
+
+    @Test
+    void testWithAutotuneConfigPersistsPath() throws IOException {
+        ContainerState state = ContainerState.createPending("/rootfs", "alpine",
+                new String[]{"/bin/sh"})
+                .withAutotuneConfig(Path.of("configs/autotune.json"));
+
+        assertEquals("configs/autotune.json", state.autotuneConfigPath());
+
+        Path dir = tempDir.resolve(state.id());
+        state.save(dir);
+        ContainerState loaded = ContainerState.load(dir);
+        assertEquals("configs/autotune.json", loaded.autotuneConfigPath());
     }
 
     @Test

@@ -107,6 +107,76 @@ class ContainerParentTest {
         assertTrue(error.getMessage().contains("memory.high"));
     }
 
+    @Test
+    void testLoadAutotuneConfigRequiresNetwork() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--autotune-config", "/tmp/autotune.json", "/rootfs", "/bin/httpd"});
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> ContainerParent.loadAutotuneConfig(config));
+
+        assertTrue(error.getMessage().contains("--net"));
+    }
+
+    @Test
+    void testLoadAutotuneConfigReadsFile() throws IOException {
+        Path configPath = tempDir.resolve("autotune.json");
+        Files.writeString(configPath, """
+                {
+                  "controlInterval": "1s",
+                  "probe": {
+                    "mode": "http",
+                    "host": "10.0.0.2",
+                    "port": 8080,
+                    "path": "/health",
+                    "timeout": "250ms"
+                  },
+                  "bundles": [
+                    {
+                      "name": "small",
+                      "cpuPercent": 25,
+                      "memoryHighBytes": 67108864,
+                      "memoryMaxBytes": 134217728
+                    }
+                  ],
+                  "slo": {
+                    "p95LatencyMillis": 200,
+                    "maxTimeoutRate": 0.01
+                  },
+                  "bandit": {
+                    "epsilon": 0.2,
+                    "minEpsilon": 0.05,
+                    "cooldownCycles": 3
+                  },
+                  "safety": {
+                    "consecutiveSloMisses": 3,
+                    "oomFreezeCycles": 5
+                  }
+                }
+                """);
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--autotune-config", configPath.toString(), "/rootfs", "/bin/httpd"});
+
+        AutotuneConfig autotuneConfig = ContainerParent.loadAutotuneConfig(config);
+
+        assertNotNull(autotuneConfig);
+        assertEquals("10.0.0.2", autotuneConfig.probe().host());
+    }
+
+    @Test
+    void testCreateAutotuneLoopUsesContainerStateAndCgroup() {
+        ContainerState state = ContainerState.createPending("/rootfs", null,
+                new String[]{"/bin/httpd"}).withAutotuneConfig(Path.of("configs/autotune.json"));
+        AutotuneConfig config = sampleAutotuneConfig();
+        CgroupManager cgroupManager = new CgroupManager(Path.of("/sys/fs/cgroup"), state.id());
+
+        AutotuneLoop loop = ContainerParent.createAutotuneLoop(state, config, cgroupManager);
+
+        assertSame(state, loop.containerState());
+        assertSame(config, loop.config());
+        assertSame(cgroupManager, loop.cgroupManager());
+    }
+
     private Path createCgroupV2Root(boolean withPsi) throws IOException {
         Path cgroupRoot = tempDir.resolve("sys/fs/cgroup");
         Files.createDirectories(cgroupRoot);
@@ -133,5 +203,16 @@ class ContainerParentTest {
                 PosixFilePermission.GROUP_READ,
                 PosixFilePermission.OTHERS_READ));
         assumeTrue(!Files.isWritable(file), "Fixture must be non-writable");
+    }
+
+    private AutotuneConfig sampleAutotuneConfig() {
+        return new AutotuneConfig(
+                java.time.Duration.ofSeconds(1),
+                new ProbeSpec("http", "10.0.0.2", 8080, "/health", java.time.Duration.ofMillis(250)),
+                java.util.List.of(new ResourceBundle("small", 25, 64L * 1024 * 1024, 128L * 1024 * 1024)),
+                new AutotuneConfig.SloTarget(200, 0.01),
+                new AutotuneConfig.BanditSpec(0.2, 0.05, 3),
+                new AutotuneConfig.SafetySpec(3, 5)
+        );
     }
 }
