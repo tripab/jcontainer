@@ -119,6 +119,25 @@ class ContainerParentTest {
     }
 
     @Test
+    void testValidateAutotuneSupportRejectsNonLinux() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--autotune-config", "/tmp/autotune.json", "/rootfs", "/bin/httpd"});
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> ContainerParent.validateAutotuneSupport(config, false));
+
+        assertTrue(error.getMessage().contains("only supported on Linux"));
+    }
+
+    @Test
+    void testValidateAutotuneSupportAllowsLinux() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--autotune-config", "/tmp/autotune.json", "/rootfs", "/bin/httpd"});
+
+        assertDoesNotThrow(() -> ContainerParent.validateAutotuneSupport(config, true));
+    }
+
+    @Test
     void testLoadAutotuneConfigReadsFile() throws IOException {
         Path configPath = tempDir.resolve("autotune.json");
         Files.writeString(configPath, """

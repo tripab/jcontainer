@@ -18,9 +18,17 @@ public class ContainerParent {
 
     public static void run(ContainerRuntime runtime, String[] args) {
         ContainerConfig config = ContainerConfig.parse(args);
+        boolean isLinux = JContainer.isLinux();
         AutotuneConfig autotuneConfig = null;
 
-        if (config.hasAutotuneConfig() && JContainer.isLinux()) {
+        try {
+            validateAutotuneSupport(config, isLinux);
+        } catch (IllegalArgumentException e) {
+            System.err.println("ERROR: " + e.getMessage());
+            System.exit(1);
+        }
+
+        if (config.hasAutotuneConfig() && isLinux) {
             try {
                 autotuneConfig = loadAutotuneConfig(config);
                 AutotunePreflight preflight = verifyLinuxAutotunePreflight(CGROUP_ROOT);
@@ -65,7 +73,7 @@ public class ContainerParent {
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
-        if (JContainer.isLinux() && (config.hasResourceLimits() || autotuneConfig != null)) {
+        if (isLinux && (config.hasResourceLimits() || autotuneConfig != null)) {
             cgroup = createCgroupManager(CGROUP_ROOT, containerState);
             try {
                 cgroup.create();
@@ -85,12 +93,12 @@ public class ContainerParent {
                 cgroup.close();
                 cgroup = null;
             }
-        } else if (config.hasResourceLimits() && !JContainer.isLinux()) {
+        } else if (config.hasResourceLimits() && !isLinux) {
             System.err.println("WARNING: Resource limits (--memory, --cpu) are only supported on Linux.");
         }
 
         // Warn about --net on macOS
-        if (config.networkEnabled() && !JContainer.isLinux()) {
+        if (config.networkEnabled() && !isLinux) {
             System.err.println("WARNING: Network namespace (--net) is only supported on Linux.");
         }
 
@@ -126,7 +134,7 @@ public class ContainerParent {
             }
 
             // Set up networking after child starts (needs child PID for namespace)
-            if (config.networkEnabled() && JContainer.isLinux()) {
+            if (config.networkEnabled() && isLinux) {
                 network = new NetworkManager();
                 try {
                     network.setup(process.pid());
@@ -214,6 +222,12 @@ public class ContainerParent {
 
     static CgroupManager createCgroupManager(Path cgroupRoot, ContainerState containerState) {
         return new CgroupManager(cgroupRoot, containerState.id());
+    }
+
+    static void validateAutotuneSupport(ContainerConfig config, boolean isLinux) {
+        if (config.hasAutotuneConfig() && !isLinux) {
+            throw new IllegalArgumentException("--autotune-config is only supported on Linux.");
+        }
     }
 
     static AutotuneConfig loadAutotuneConfig(ContainerConfig config) throws IOException {
