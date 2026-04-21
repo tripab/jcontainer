@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,6 +62,18 @@ class CgroupManagerTest {
     }
 
     @Test
+    void testSetMemoryHigh() throws IOException {
+        CgroupManager mgr = createManager("test03-high");
+        mgr.create();
+        Files.createFile(mgr.getCgroupPath().resolve("memory.high"));
+
+        mgr.setMemoryHigh(67108864L);
+
+        String content = Files.readString(mgr.getCgroupPath().resolve("memory.high"));
+        assertEquals("67108864\n", content);
+    }
+
+    @Test
     void testSetCpuLimit50Percent() throws IOException {
         CgroupManager mgr = createManager("test04");
         mgr.create();
@@ -94,6 +107,92 @@ class CgroupManagerTest {
 
         String content = Files.readString(mgr.getCgroupPath().resolve("cgroup.procs"));
         assertEquals("12345\n", content);
+    }
+
+    @Test
+    void testReadCpuStatParsesFields() throws IOException {
+        CgroupManager mgr = createManager("test10");
+        mgr.create();
+        Files.writeString(mgr.getCgroupPath().resolve("cpu.stat"), """
+                usage_usec 123456
+                nr_periods 789
+                nr_throttled 12
+                throttled_usec 3456
+                """);
+
+        CgroupManager.CpuStat cpuStat = mgr.readCpuStat();
+
+        assertEquals(123456L, cpuStat.usageMicros());
+        assertEquals(789L, cpuStat.nrPeriods());
+        assertEquals(12L, cpuStat.nrThrottled());
+        assertEquals(3456L, cpuStat.throttledMicros());
+    }
+
+    @Test
+    void testReadMemoryCurrentParsesBytes() throws IOException {
+        CgroupManager mgr = createManager("test11");
+        mgr.create();
+        Files.writeString(mgr.getCgroupPath().resolve("memory.current"), "1048576\n");
+
+        long memoryCurrent = mgr.readMemoryCurrent();
+
+        assertEquals(1048576L, memoryCurrent);
+    }
+
+    @Test
+    void testReadMemoryEventsParsesFields() throws IOException {
+        CgroupManager mgr = createManager("test12");
+        mgr.create();
+        Files.writeString(mgr.getCgroupPath().resolve("memory.events"), """
+                low 1
+                high 2
+                max 3
+                oom 4
+                oom_kill 5
+                """);
+
+        CgroupManager.MemoryEvents events = mgr.readMemoryEvents();
+
+        assertEquals(1L, events.low());
+        assertEquals(2L, events.high());
+        assertEquals(3L, events.max());
+        assertEquals(4L, events.oom());
+        assertEquals(5L, events.oomKill());
+    }
+
+    @Test
+    void testReadMemoryPressureReturnsEmptyWhenUnavailable() throws IOException {
+        CgroupManager mgr = createManager("test13");
+        mgr.create();
+
+        Optional<CgroupManager.PressureStat> pressure = mgr.readMemoryPressure();
+
+        assertTrue(pressure.isEmpty());
+    }
+
+    @Test
+    void testReadMemoryPressureParsesAvg10AndTotals() throws IOException {
+        CgroupManager mgr = createManager("test14");
+        mgr.create();
+        Files.writeString(mgr.getCgroupPath().resolve("memory.pressure"), """
+                some avg10=0.50 avg60=0.10 avg300=0.00 total=1234
+                full avg10=0.25 avg60=0.05 avg300=0.00 total=567
+                """);
+
+        CgroupManager.PressureStat pressure = mgr.readMemoryPressure().orElseThrow();
+
+        assertEquals(0.50, pressure.someAvg10());
+        assertEquals(0.25, pressure.fullAvg10());
+        assertEquals(1234L, pressure.someTotalMicros());
+        assertEquals(567L, pressure.fullTotalMicros());
+    }
+
+    @Test
+    void testParsePressureRequiresFullLine() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> CgroupManager.parsePressure("some avg10=0.50 avg60=0.10 avg300=0.00 total=1234\n"));
+
+        assertTrue(error.getMessage().contains("full"));
     }
 
     @Test
