@@ -1,7 +1,10 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
+
 import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -13,7 +16,7 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command,
+                                          Path seccompPolicy, String rootfs, String[] command,
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaPath);
@@ -22,6 +25,10 @@ public class MacOSRuntime implements ContainerRuntime {
         cmd.add(classpath);
         cmd.add("org.jcontainer.JContainer");
         cmd.add("child");
+        if (seccompPolicy != null) {
+            cmd.add("--seccomp-policy");
+            cmd.add(seccompPolicy.toString());
+        }
         cmd.add(rootfs);
         cmd.addAll(List.of(command));
         return cmd;
@@ -53,9 +60,9 @@ public class MacOSRuntime implements ContainerRuntime {
     }
 
     @Override
-    public void execCommand(String[] command) {
+    public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
         try {
-            ProcessBuilder pb = new ProcessBuilder(command);
+            ProcessBuilder pb = new ProcessBuilder(executable.argv());
             pb.inheritIO();
             Process process = pb.start();
             int exitCode = process.waitFor();

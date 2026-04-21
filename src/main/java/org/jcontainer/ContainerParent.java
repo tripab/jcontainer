@@ -42,7 +42,7 @@ public class ContainerParent {
 
         // Build the child command (Linux: wrapped with unshare; macOS: plain java)
         List<String> childCmd = runtime.buildChildCommand(
-                javaPath, classpath, rootfs, config.command(),
+                javaPath, classpath, null, rootfs, config.command(),
                 config.networkEnabled());
 
         // Set up cgroups if resource limits specified (Linux only)

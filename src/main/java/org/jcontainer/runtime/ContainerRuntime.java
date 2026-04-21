@@ -1,5 +1,8 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
+
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -16,7 +19,7 @@ public interface ContainerRuntime {
      * @param networkEnabled if true, the child is spawned in a new network namespace (Linux only)
      */
     List<String> buildChildCommand(String javaPath, String classpath,
-                                   String rootfs, String[] command,
+                                   Path seccompPolicy, String rootfs, String[] command,
                                    boolean networkEnabled);
 
     /**
@@ -43,5 +46,5 @@ public interface ContainerRuntime {
     /**
      * Execute the target command inside the container.
      */
-    void execCommand(String[] command);
+    void execCommand(ResolvedExecutable executable, Path seccompPolicy);
 }

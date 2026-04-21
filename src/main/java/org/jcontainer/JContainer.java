@@ -35,7 +35,7 @@ public class JContainer {
                 ContainerParent.run(runtime, args);
             }
             case "child" -> {
-                if (args.length < 3) {
+                if (!ContainerChild.hasValidArguments(args)) {
                     usage();
                     System.exit(1);
                 }
@@ -112,6 +112,7 @@ public class JContainer {
                   java org.jcontainer.JContainer list
                   java org.jcontainer.JContainer stop <container-id>
                   java org.jcontainer.JContainer logs <container-id>
-                  java org.jcontainer.JContainer rm <container-id>""");
+                  java org.jcontainer.JContainer rm <container-id>
+                  java org.jcontainer.JContainer child [--seccomp-policy FILE] <rootfs> <command> [args...]""");
     }
 }

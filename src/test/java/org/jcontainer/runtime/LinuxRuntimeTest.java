@@ -2,6 +2,7 @@ package org.jcontainer.runtime;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,7 +14,7 @@ class LinuxRuntimeTest {
     @Test
     void testBuildChildCommandStructure() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/target/classes", "/app/rootfs",
+                "/usr/bin/java", "/app/target/classes", null, "/app/rootfs",
                 new String[]{"/bin/sh", "-c", "echo hello"}, false);
 
         assertEquals("unshare", cmd.get(0));
@@ -32,7 +33,7 @@ class LinuxRuntimeTest {
     void testBuildChildCommandPreservesUserArgs() {
         String[] userCmd = {"/bin/sh", "-c", "echo hello"};
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/classes", "/rootfs", userCmd, false);
+                "/usr/bin/java", "/app/classes", null, "/rootfs", userCmd, false);
 
         // User command starts at index 10
         assertEquals("/bin/sh", cmd.get(10));
@@ -44,7 +45,7 @@ class LinuxRuntimeTest {
     @Test
     void testBuildChildCommandIncludesNativeAccess() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, false);
+                "/usr/bin/java", "/cp", null, "/rootfs", new String[]{"/bin/sh"}, false);
 
         assertTrue(cmd.contains("--enable-native-access=ALL-UNNAMED"));
     }
@@ -52,7 +53,7 @@ class LinuxRuntimeTest {
     @Test
     void testBuildChildCommandWithNetworkEnabled() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, true);
+                "/usr/bin/java", "/cp", null, "/rootfs", new String[]{"/bin/sh"}, true);
 
         assertEquals("unshare", cmd.get(0));
         assertEquals("--pid", cmd.get(1));
@@ -64,8 +65,19 @@ class LinuxRuntimeTest {
     @Test
     void testBuildChildCommandWithoutNetworkHasNoNetFlag() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/cp", "/rootfs", new String[]{"/bin/sh"}, false);
+                "/usr/bin/java", "/cp", null, "/rootfs", new String[]{"/bin/sh"}, false);
 
         assertFalse(cmd.contains("--net"), "Command should NOT contain --net flag");
+    }
+
+    @Test
+    void testBuildChildCommandIncludesSeccompPolicyWhenPresent() {
+        List<String> cmd = runtime.buildChildCommand(
+                "/usr/bin/java", "/cp", Path.of("/tmp/policy.json"), "/rootfs",
+                new String[]{"/bin/sh"}, false);
+
+        assertEquals("--seccomp-policy", cmd.get(9));
+        assertEquals("/tmp/policy.json", cmd.get(10));
+        assertEquals("/rootfs", cmd.get(11));
     }
 }
