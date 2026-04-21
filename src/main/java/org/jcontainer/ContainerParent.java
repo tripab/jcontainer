@@ -19,6 +19,18 @@ public class ContainerParent {
     public static void run(ContainerRuntime runtime, String[] args) {
         ContainerConfig config = ContainerConfig.parse(args);
 
+        if (config.hasAutotuneConfig() && JContainer.isLinux()) {
+            try {
+                AutotunePreflight preflight = verifyLinuxAutotunePreflight(CGROUP_ROOT);
+                if (!preflight.psiAvailable()) {
+                    System.err.println("WARNING: PSI metrics are unavailable; autotune will continue without pressure signals.");
+                }
+            } catch (IOException | IllegalStateException e) {
+                System.err.println("ERROR: " + e.getMessage());
+                System.exit(1);
+            }
+        }
+
         // Pull image if --image was specified
         String rootfs = config.rootfs();
         if (config.hasImage()) {
@@ -178,5 +190,57 @@ public class ContainerParent {
 
     static CgroupManager createCgroupManager(Path cgroupRoot, ContainerState containerState) {
         return new CgroupManager(cgroupRoot, containerState.id());
+    }
+
+    static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot) throws IOException {
+        verifyCgroupV2Root(cgroupRoot);
+
+        String preflightId = "autotune-preflight-" + ContainerState.generateId();
+        CgroupManager cgroupManager = new CgroupManager(cgroupRoot, preflightId);
+        try {
+            cgroupManager.create();
+            return verifyLinuxAutotunePreflight(cgroupRoot, cgroupManager.getCgroupPath());
+        } finally {
+            cgroupManager.close();
+        }
+    }
+
+    static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot, Path cgroupPath) {
+        verifyCgroupV2Root(cgroupRoot);
+        verifyWritableControlFile(cgroupPath.resolve("cpu.max"), "cpu.max");
+        verifyWritableControlFile(cgroupPath.resolve("memory.high"), "memory.high");
+        verifyWritableControlFile(cgroupPath.resolve("memory.max"), "memory.max");
+        return new AutotunePreflight(isPsiAvailable(cgroupRoot));
+    }
+
+    static void verifyCgroupV2Root(Path cgroupRoot) {
+        if (!Files.isDirectory(cgroupRoot)) {
+            throw new IllegalStateException("Autotune requires a mounted cgroup v2 filesystem at " + cgroupRoot);
+        }
+        Path controllersFile = cgroupRoot.resolve("cgroup.controllers");
+        if (!Files.isRegularFile(controllersFile)) {
+            throw new IllegalStateException("Autotune requires cgroup v2; missing " + controllersFile);
+        }
+    }
+
+    static void verifyWritableControlFile(Path controlFile, String displayName) {
+        if (!Files.isRegularFile(controlFile)) {
+            throw new IllegalStateException("Autotune requires writable cgroup control file: " + displayName);
+        }
+        if (!Files.isWritable(controlFile)) {
+            throw new IllegalStateException("Autotune requires write access to cgroup control file: " + displayName);
+        }
+    }
+
+    static boolean isPsiAvailable(Path cgroupRoot) {
+        return isReadablePressureFile(cgroupRoot.resolve("cpu.pressure"))
+                && isReadablePressureFile(cgroupRoot.resolve("memory.pressure"));
+    }
+
+    private static boolean isReadablePressureFile(Path pressureFile) {
+        return Files.isRegularFile(pressureFile) && Files.isReadable(pressureFile);
+    }
+
+    record AutotunePreflight(boolean psiAvailable) {
     }
 }
