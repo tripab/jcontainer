@@ -1,8 +1,10 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -79,5 +81,39 @@ class LinuxRuntimeTest {
         assertEquals("--seccomp-policy", cmd.get(9));
         assertEquals("/tmp/policy.json", cmd.get(10));
         assertEquals("/rootfs", cmd.get(11));
+    }
+
+    @Test
+    void testExecCommandUsesNativeExecvWithoutSeccompPolicy() {
+        RecordingLinuxRuntime runtime = new RecordingLinuxRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh", "-c", "echo hi"});
+
+        runtime.execCommand(executable, null);
+
+        assertEquals(List.of("exec:/bin/sh"), runtime.events);
+    }
+
+    @Test
+    void testExecCommandInstallsSeccompBeforeNativeExecv() {
+        RecordingLinuxRuntime runtime = new RecordingLinuxRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh"});
+
+        runtime.execCommand(executable, Path.of("/tmp/policy.json"));
+
+        assertEquals(List.of("seccomp:/tmp/policy.json", "exec:/bin/sh"), runtime.events);
+    }
+
+    private static final class RecordingLinuxRuntime extends LinuxRuntime {
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        protected void installSeccompPolicy(Path seccompPolicy) {
+            events.add("seccomp:" + seccompPolicy);
+        }
+
+        @Override
+        protected void exec(ResolvedExecutable executable) {
+            events.add("exec:" + executable.path());
+        }
     }
 }
