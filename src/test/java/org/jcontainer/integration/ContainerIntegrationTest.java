@@ -89,11 +89,24 @@ class ContainerIntegrationTest {
         if (!Files.isDirectory(Path.of(ROOTFS))) {
             fail("rootfs/ directory not found.");
         }
-        // In a PID namespace, the container's init process is PID 1
         ProcessResult result = runContainer("/bin/sh", "-c", "echo $$");
         assertEquals(0, result.exitCode(), "echo $$ should succeed. stderr: " + result.stderr());
-        // The shell itself may not be PID 1 (the JVM child is PID 1),
-        // but the PID should be a low number within the namespace
+        assertEquals("1", result.stdout().trim(),
+                "The payload should become PID 1 after the native execv handoff");
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void testContainerPidOneCmdlineMatchesPayload() throws Exception {
+        if (!Files.isDirectory(Path.of(ROOTFS))) {
+            fail("rootfs/ directory not found.");
+        }
+        ProcessResult result = runContainer("/bin/cat", "/proc/1/cmdline");
+        assertEquals(0, result.exitCode(), "cat /proc/1/cmdline should succeed. stderr: " + result.stderr());
+        assertTrue(result.stdout().contains("/bin/cat"),
+                "PID 1 cmdline should contain the payload executable. stdout: " + result.stdout());
+        assertTrue(result.stdout().contains("/proc/1/cmdline"),
+                "PID 1 cmdline should contain the payload arguments. stdout: " + result.stdout());
     }
 
     @Test
