@@ -81,6 +81,22 @@ Required invariants:
 
 A policy generated on `linux-x86_64` must be rejected on `linux-aarch64`, and vice versa.
 
+### 8. Enforce a deterministic linear allowlist ceiling before filter generation
+
+The filter generator must reject oversized policies before attempting to install them.
+
+For the planned linear cBPF layout, each allowlisted syscall consumes one compare instruction. Fixed overhead is architecture-dependent:
+
+- `x86_64`: `8` fixed instructions
+- `aarch64`: `6` fixed instructions
+
+That yields these v1 ceilings against the Linux classic BPF instruction limit of `4096`:
+
+- `x86_64`: at most `4088` allowlisted syscalls
+- `aarch64`: at most `4090` allowlisted syscalls
+
+The `x86_64` path carries two extra instructions for the required x32 ABI rejection check. If a policy exceeds the architecture-specific ceiling, generation must fail early with an explicit error describing the computed instruction count and the maximum supported allowlist size.
+
 ## Operator-visible behavior
 
 Successful behavior:
