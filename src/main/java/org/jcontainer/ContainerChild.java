@@ -21,7 +21,9 @@ public class ContainerChild {
         // Set up filesystem isolation (Linux: pivot_root; macOS: chroot)
         runtime.setupFilesystem(rootfs);
 
+        ResolvedExecutable executable = ExecutableResolver.resolve(java.nio.file.Path.of("/"), command);
+
         // Execute the target command
-        runtime.execCommand(command);
+        runtime.execCommand(executable.argv());
     }
 }
