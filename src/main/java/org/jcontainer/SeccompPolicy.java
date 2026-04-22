@@ -10,6 +10,7 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -24,6 +25,9 @@ public record SeccompPolicy(
         String defaultAction,
         List<String> syscalls
 ) {
+    public static final int SUPPORTED_VERSION = 1;
+    public static final String DEFAULT_ACTION_ERRNO_EPERM = "errno:EPERM";
+
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .disableHtmlEscaping()
@@ -63,6 +67,53 @@ public record SeccompPolicy(
 
     public static SeccompPolicy load(Path path) throws IOException {
         return fromJson(Files.readString(path));
+    }
+
+    public SeccompPolicy validateForCurrentHost() {
+        return validate(LinuxSyscallTable.loadForCurrentArch());
+    }
+
+    public SeccompPolicy validate(LinuxSyscallTable syscallTable) {
+        Objects.requireNonNull(syscallTable, "syscallTable");
+
+        if (version != SUPPORTED_VERSION) {
+            throw new IllegalArgumentException(
+                    "Unsupported seccomp policy version: " + version);
+        }
+
+        if (!DEFAULT_ACTION_ERRNO_EPERM.equals(defaultAction)) {
+            throw new IllegalArgumentException(
+                    "Unsupported seccomp policy defaultAction: " + defaultAction);
+        }
+
+        if (!syscallTable.architecture().equals(arch)) {
+            throw new IllegalArgumentException(
+                    "Seccomp policy architecture " + arch
+                            + " does not match host architecture "
+                            + syscallTable.architecture());
+        }
+
+        List<String> normalizedSyscalls = syscalls.stream()
+                .sorted(Comparator.naturalOrder())
+                .distinct()
+                .toList();
+
+        for (String syscall : normalizedSyscalls) {
+            if (!syscallTable.supportsName(syscall)) {
+                throw new IllegalArgumentException(
+                        "Unknown syscall in seccomp policy for " + syscallTable.architecture()
+                                + ": " + syscall);
+            }
+        }
+
+        return new SeccompPolicy(
+                version,
+                arch,
+                generatedAt,
+                command,
+                defaultAction,
+                normalizedSyscalls
+        );
     }
 
     private JsonObject toJsonObject() {

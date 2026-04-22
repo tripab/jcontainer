@@ -91,4 +91,92 @@ class SeccompPolicyTest {
 
         assertEquals("Missing required policy field: defaultAction", error.getMessage());
     }
+
+    @Test
+    void testValidateNormalizesDuplicateSyscallsDeterministically() {
+        SeccompPolicy policy = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("write", "read", "write", "close", "read")
+        );
+
+        SeccompPolicy validated = policy.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64"));
+
+        assertEquals(List.of("close", "read", "write"), validated.syscalls());
+    }
+
+    @Test
+    void testValidateRejectsUnsupportedSchemaVersion() {
+        SeccompPolicy policy = new SeccompPolicy(
+                2,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo"),
+                "errno:EPERM",
+                List.of("read")
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> policy.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")));
+
+        assertEquals("Unsupported seccomp policy version: 2", error.getMessage());
+    }
+
+    @Test
+    void testValidateRejectsArchitectureMismatch() {
+        SeccompPolicy policy = new SeccompPolicy(
+                1,
+                "linux-aarch64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo"),
+                "errno:EPERM",
+                List.of("read")
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> policy.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")));
+
+        assertEquals(
+                "Seccomp policy architecture linux-aarch64 does not match host architecture linux-x86_64",
+                error.getMessage());
+    }
+
+    @Test
+    void testValidateRejectsUnknownSyscallName() {
+        SeccompPolicy policy = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo"),
+                "errno:EPERM",
+                List.of("read", "not_a_real_syscall")
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> policy.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")));
+
+        assertEquals(
+                "Unknown syscall in seccomp policy for linux-x86_64: not_a_real_syscall",
+                error.getMessage());
+    }
+
+    @Test
+    void testValidateRejectsUnsupportedDefaultAction() {
+        SeccompPolicy policy = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo"),
+                "kill",
+                List.of("read")
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> policy.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")));
+
+        assertEquals("Unsupported seccomp policy defaultAction: kill", error.getMessage());
+    }
 }
