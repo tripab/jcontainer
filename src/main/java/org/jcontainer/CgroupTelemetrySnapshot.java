@@ -9,6 +9,8 @@ import java.time.Instant;
 public record CgroupTelemetrySnapshot(
         Instant observedAt,
         Duration samplingWindow,
+        ResourceBundle currentBundle,
+        boolean containerExited,
         long memoryCurrentBytes,
         long memoryLowEvents,
         long memoryHighEvents,
@@ -46,6 +48,10 @@ public record CgroupTelemetrySnapshot(
 
     public boolean hasMemoryPressure() {
         return memoryPressureSomePct != null && memoryPressureFullPct != null;
+    }
+
+    public boolean hasCurrentBundle() {
+        return currentBundle != null;
     }
 
     private static void validateNonNegative(long value, String name) {

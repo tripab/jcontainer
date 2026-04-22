@@ -23,16 +23,22 @@ class TelemetryCollectorTest {
         CgroupManager cgroupManager = createManager("collector-full");
         writeTelemetryFiles(cgroupManager, true);
         Instant observedAt = Instant.parse("2026-04-21T12:34:56Z");
+        ResourceBundle currentBundle = new ResourceBundle("medium", 50, 128L * 1024 * 1024, 256L * 1024 * 1024);
         TelemetryCollector collector = new TelemetryCollector(
                 cgroupManager,
                 Clock.fixed(observedAt, ZoneOffset.UTC),
-                Duration.ofSeconds(2)
+                Duration.ofSeconds(2),
+                () -> currentBundle,
+                () -> false
         );
 
         CgroupTelemetrySnapshot snapshot = collector.collect();
 
         assertEquals(observedAt, snapshot.observedAt());
         assertEquals(Duration.ofSeconds(2), snapshot.samplingWindow());
+        assertEquals(currentBundle, snapshot.currentBundle());
+        assertTrue(snapshot.hasCurrentBundle());
+        assertFalse(snapshot.containerExited());
         assertEquals(1048576L, snapshot.memoryCurrentBytes());
         assertEquals(1L, snapshot.memoryLowEvents());
         assertEquals(2L, snapshot.memoryHighEvents());
@@ -55,11 +61,16 @@ class TelemetryCollectorTest {
         TelemetryCollector collector = new TelemetryCollector(
                 cgroupManager,
                 Clock.fixed(Instant.parse("2026-04-21T12:35:00Z"), ZoneOffset.UTC),
-                Duration.ofSeconds(1)
+                Duration.ofSeconds(1),
+                () -> null,
+                () -> true
         );
 
         CgroupTelemetrySnapshot snapshot = collector.collect();
 
+        assertNull(snapshot.currentBundle());
+        assertFalse(snapshot.hasCurrentBundle());
+        assertTrue(snapshot.containerExited());
         assertNull(snapshot.memoryPressureSomePct());
         assertNull(snapshot.memoryPressureFullPct());
         assertFalse(snapshot.hasMemoryPressure());
