@@ -10,7 +10,11 @@ import com.google.gson.JsonParser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 
@@ -67,6 +71,16 @@ public record SeccompPolicy(
 
     public static SeccompPolicy load(Path path) throws IOException {
         return fromJson(Files.readString(path));
+    }
+
+    public String sha256Digest() {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] bytes = digest.digest(toJson().getBytes(StandardCharsets.UTF_8));
+            return "sha256:" + HexFormat.of().formatHex(bytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 digest support is unavailable", e);
+        }
     }
 
     public SeccompPolicy validateForCurrentHost() {

@@ -179,4 +179,44 @@ class SeccompPolicyTest {
 
         assertEquals("Unsupported seccomp policy defaultAction: kill", error.getMessage());
     }
+
+    @Test
+    void testSha256DigestUsesCanonicalJsonFormat() {
+        SeccompPolicy policy = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("read", "write", "exit_group")
+        );
+
+        assertEquals(
+                "sha256:f23bd152a1c815040748cce095042dda645d51e72d69680594ac1fc4c409cdbb",
+                policy.sha256Digest());
+    }
+
+    @Test
+    void testSha256DigestMatchesNormalizedPolicySemantics() {
+        SeccompPolicy first = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("write", "read", "write", "close")
+        );
+        SeccompPolicy second = new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-04-20T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("close", "read", "write")
+        );
+
+        assertEquals(
+                second.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")).sha256Digest(),
+                first.validate(LinuxSyscallTable.loadForArchitecture("linux-x86_64")).sha256Digest());
+    }
 }
