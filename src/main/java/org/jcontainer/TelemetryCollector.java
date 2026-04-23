@@ -19,6 +19,7 @@ public final class TelemetryCollector {
     private final Duration samplingWindow;
     private final Supplier<ResourceBundle> currentBundleSupplier;
     private final BooleanSupplier containerExitedSupplier;
+    private CgroupTelemetrySnapshot previousSnapshot;
 
     public TelemetryCollector(CgroupManager cgroupManager) {
         this(cgroupManager, Clock.systemUTC(), DEFAULT_SAMPLING_WINDOW, () -> null, () -> false);
@@ -80,6 +81,15 @@ public final class TelemetryCollector {
                 pressure != null ? pressure.someAvg10() : null,
                 pressure != null ? pressure.fullAvg10() : null
         );
+    }
+
+    public synchronized CgroupTelemetryWindow collectWindow() throws IOException {
+        CgroupTelemetrySnapshot currentSnapshot = collect();
+        CgroupTelemetryWindow window = previousSnapshot == null
+                ? CgroupTelemetryWindow.initial(currentSnapshot)
+                : CgroupTelemetryWindow.between(previousSnapshot, currentSnapshot);
+        previousSnapshot = currentSnapshot;
+        return window;
     }
 
     Duration samplingWindow() {
