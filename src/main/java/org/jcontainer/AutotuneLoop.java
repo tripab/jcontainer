@@ -17,6 +17,7 @@ public final class AutotuneLoop implements AutoCloseable {
     private boolean started;
     private boolean closed;
     private boolean explorationBlocked = true;
+    private ResourceBundle safeFallbackBundle;
     private CgroupTelemetryWindow lastTelemetryWindow;
     private ProbeObservation lastProbeObservation;
 
@@ -71,7 +72,10 @@ public final class AutotuneLoop implements AutoCloseable {
         }
         lastTelemetryWindow = telemetryCollector.collectWindow();
         lastProbeObservation = probeAgent.sample();
-        explorationBlocked = !lastProbeObservation.ready();
+        explorationBlocked = lastProbeObservation.requiresDecisionFreeze();
+        safeFallbackBundle = lastProbeObservation.requiresSafeFallback()
+                ? selectSafeFallbackBundle(config)
+                : null;
     }
 
     ContainerState containerState() {
@@ -94,6 +98,10 @@ public final class AutotuneLoop implements AutoCloseable {
         return lastProbeObservation;
     }
 
+    ResourceBundle safeFallbackBundle() {
+        return safeFallbackBundle;
+    }
+
     boolean isStarted() {
         return started;
     }
@@ -104,5 +112,9 @@ public final class AutotuneLoop implements AutoCloseable {
 
     boolean isExplorationBlocked() {
         return explorationBlocked;
+    }
+
+    private static ResourceBundle selectSafeFallbackBundle(AutotuneConfig config) {
+        return config.bundles().get(config.bundles().size() - 1);
     }
 }

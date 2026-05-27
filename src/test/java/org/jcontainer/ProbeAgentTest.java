@@ -32,6 +32,7 @@ class ProbeAgentTest {
                     Clock.fixed(Instant.parse("2026-04-23T02:00:00Z"), ZoneOffset.UTC),
                     3,
                     2,
+                    2,
                     1.0
             );
 
@@ -44,14 +45,21 @@ class ProbeAgentTest {
             assertEquals(0L, first.errorCount());
             assertEquals(1.0, first.successRate());
             assertEquals(0.0, first.timeoutRate());
+            assertTrue(first.healthyWindow());
+            assertEquals(1, first.consecutiveHealthyWindows());
+            assertEquals(0, first.consecutiveFailedWindows());
             assertTrue(first.hasLatencyData());
             assertFalse(first.hasFailures());
             assertFalse(first.ready(), "Readiness should require two consecutive healthy windows");
+            assertTrue(first.requiresDecisionFreeze(), "Warmup window should freeze decisions");
+            assertFalse(first.requiresSafeFallback());
             assertTrue(first.p50Latency().toMillis() >= 0);
             assertTrue(first.p95Latency().compareTo(first.p50Latency()) >= 0);
             assertTrue(first.requestsPerSecond() > 0.0);
 
             assertTrue(second.ready(), "Second healthy window should satisfy readiness gate");
+            assertFalse(second.requiresDecisionFreeze());
+            assertFalse(second.requiresSafeFallback());
         }
     }
 
@@ -67,6 +75,7 @@ class ProbeAgentTest {
                     Clock.fixed(Instant.parse("2026-04-23T02:05:00Z"), ZoneOffset.UTC),
                     2,
                     1,
+                    2,
                     1.0
             );
 
@@ -80,14 +89,19 @@ class ProbeAgentTest {
             assertEquals(Duration.ZERO, observation.p95Latency());
             assertEquals(0.0, observation.successRate());
             assertEquals(1.0, observation.timeoutRate());
+            assertFalse(observation.healthyWindow());
+            assertEquals(0, observation.consecutiveHealthyWindows());
+            assertEquals(1, observation.consecutiveFailedWindows());
             assertFalse(observation.ready());
             assertFalse(observation.hasLatencyData());
             assertTrue(observation.hasFailures());
+            assertTrue(observation.requiresDecisionFreeze());
+            assertFalse(observation.requiresSafeFallback());
         }
     }
 
     @Test
-    void testSampleTreatsNonSuccessResponsesAsErrors() throws Exception {
+    void testSampleTreatsNonSuccessResponsesAsErrorsAndEscalatesRepeatedFailure() throws Exception {
         try (FailingHttpService service = new FailingHttpService()) {
             ProbeSpec spec = new ProbeSpec("http", "127.0.0.1", service.port(), "/health", Duration.ofMillis(250));
             ProbeAgent agent = new ProbeAgent(
@@ -96,18 +110,28 @@ class ProbeAgentTest {
                     Clock.fixed(Instant.parse("2026-04-23T02:10:00Z"), ZoneOffset.UTC),
                     2,
                     1,
+                    2,
                     1.0
             );
 
-            ProbeObservation observation = agent.sample();
+            ProbeObservation first = agent.sample();
+            ProbeObservation second = agent.sample();
 
-            assertEquals(2L, observation.sampleCount());
-            assertEquals(0L, observation.successCount());
-            assertEquals(0L, observation.timeoutCount());
-            assertEquals(2L, observation.errorCount());
-            assertEquals(0.0, observation.successRate());
-            assertEquals(0.0, observation.timeoutRate());
-            assertFalse(observation.ready());
+            assertEquals(2L, first.sampleCount());
+            assertEquals(0L, first.successCount());
+            assertEquals(0L, first.timeoutCount());
+            assertEquals(2L, first.errorCount());
+            assertEquals(0.0, first.successRate());
+            assertEquals(0.0, first.timeoutRate());
+            assertFalse(first.healthyWindow());
+            assertEquals(1, first.consecutiveFailedWindows());
+            assertFalse(first.ready());
+            assertTrue(first.requiresDecisionFreeze());
+            assertFalse(first.requiresSafeFallback());
+
+            assertEquals(2, second.consecutiveFailedWindows());
+            assertTrue(second.requiresDecisionFreeze());
+            assertTrue(second.requiresSafeFallback());
         }
     }
 

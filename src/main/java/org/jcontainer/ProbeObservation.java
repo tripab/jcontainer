@@ -18,7 +18,12 @@ public record ProbeObservation(
         double successRate,
         double timeoutRate,
         double requestsPerSecond,
-        boolean ready
+        boolean healthyWindow,
+        int consecutiveHealthyWindows,
+        int consecutiveFailedWindows,
+        boolean ready,
+        boolean decisionFrozen,
+        boolean safeFallbackRecommended
 ) {
 
     public ProbeObservation {
@@ -38,6 +43,8 @@ public record ProbeObservation(
         validateNonNegative(successCount, "successCount");
         validateNonNegative(timeoutCount, "timeoutCount");
         validateNonNegative(errorCount, "errorCount");
+        validateNonNegative(consecutiveHealthyWindows, "consecutiveHealthyWindows");
+        validateNonNegative(consecutiveFailedWindows, "consecutiveFailedWindows");
         validateRatio(successRate, "successRate");
         validateRatio(timeoutRate, "timeoutRate");
         if (requestsPerSecond < 0.0) {
@@ -51,6 +58,14 @@ public record ProbeObservation(
 
     public boolean hasFailures() {
         return timeoutCount > 0 || errorCount > 0;
+    }
+
+    public boolean requiresDecisionFreeze() {
+        return decisionFrozen;
+    }
+
+    public boolean requiresSafeFallback() {
+        return safeFallbackRecommended;
     }
 
     private static void validateNonNegative(long value, String name) {

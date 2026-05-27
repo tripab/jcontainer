@@ -19,6 +19,7 @@ public final class ProbeAgent {
 
     private static final int DEFAULT_SAMPLES_PER_WINDOW = 5;
     private static final int DEFAULT_REQUIRED_HEALTHY_WINDOWS = 2;
+    private static final int DEFAULT_REQUIRED_FAILED_WINDOWS_FOR_FALLBACK = 3;
     private static final double DEFAULT_MIN_SUCCESS_RATE = 1.0;
 
     private final ProbeSpec probeSpec;
@@ -26,17 +27,27 @@ public final class ProbeAgent {
     private final Clock clock;
     private final int samplesPerWindow;
     private final int requiredHealthyWindows;
+    private final int requiredFailedWindowsForFallback;
     private final double minSuccessRate;
 
     private int consecutiveHealthyWindows;
+    private int consecutiveFailedWindows;
 
     public ProbeAgent(ProbeSpec probeSpec) {
         this(probeSpec, defaultHttpClient(probeSpec), Clock.systemUTC(),
-                DEFAULT_SAMPLES_PER_WINDOW, DEFAULT_REQUIRED_HEALTHY_WINDOWS, DEFAULT_MIN_SUCCESS_RATE);
+                DEFAULT_SAMPLES_PER_WINDOW, DEFAULT_REQUIRED_HEALTHY_WINDOWS,
+                DEFAULT_REQUIRED_FAILED_WINDOWS_FOR_FALLBACK, DEFAULT_MIN_SUCCESS_RATE);
     }
 
     ProbeAgent(ProbeSpec probeSpec, HttpClient httpClient, Clock clock,
                int samplesPerWindow, int requiredHealthyWindows, double minSuccessRate) {
+        this(probeSpec, httpClient, clock, samplesPerWindow, requiredHealthyWindows,
+                DEFAULT_REQUIRED_FAILED_WINDOWS_FOR_FALLBACK, minSuccessRate);
+    }
+
+    ProbeAgent(ProbeSpec probeSpec, HttpClient httpClient, Clock clock,
+               int samplesPerWindow, int requiredHealthyWindows,
+               int requiredFailedWindowsForFallback, double minSuccessRate) {
         if (probeSpec == null) {
             throw new IllegalArgumentException("Probe spec is required");
         }
@@ -52,6 +63,9 @@ public final class ProbeAgent {
         if (requiredHealthyWindows <= 0) {
             throw new IllegalArgumentException("requiredHealthyWindows must be positive");
         }
+        if (requiredFailedWindowsForFallback <= 0) {
+            throw new IllegalArgumentException("requiredFailedWindowsForFallback must be positive");
+        }
         if (minSuccessRate < 0.0 || minSuccessRate > 1.0) {
             throw new IllegalArgumentException("minSuccessRate must be between 0.0 and 1.0");
         }
@@ -60,6 +74,7 @@ public final class ProbeAgent {
         this.clock = clock;
         this.samplesPerWindow = samplesPerWindow;
         this.requiredHealthyWindows = requiredHealthyWindows;
+        this.requiredFailedWindowsForFallback = requiredFailedWindowsForFallback;
         this.minSuccessRate = minSuccessRate;
     }
 
@@ -105,8 +120,12 @@ public final class ProbeAgent {
         Duration p95 = percentile(latenciesNanos, 95);
 
         boolean healthyWindow = isHealthyWindow(successRate, timeoutCount, errorCount);
+        boolean failedWindow = isFailedWindow(successCount, timeoutCount, errorCount, sampleCount);
         consecutiveHealthyWindows = healthyWindow ? consecutiveHealthyWindows + 1 : 0;
+        consecutiveFailedWindows = failedWindow ? consecutiveFailedWindows + 1 : 0;
         boolean ready = consecutiveHealthyWindows >= requiredHealthyWindows;
+        boolean decisionFrozen = !ready || !healthyWindow;
+        boolean safeFallbackRecommended = consecutiveFailedWindows >= requiredFailedWindowsForFallback;
 
         return new ProbeObservation(
                 observedAt,
@@ -120,12 +139,21 @@ public final class ProbeAgent {
                 successRate,
                 timeoutRate,
                 requestsPerSecond,
-                ready
+                healthyWindow,
+                consecutiveHealthyWindows,
+                consecutiveFailedWindows,
+                ready,
+                decisionFrozen,
+                safeFallbackRecommended
         );
     }
 
     private boolean isHealthyWindow(double successRate, long timeoutCount, long errorCount) {
         return successRate >= minSuccessRate && timeoutCount == 0L && errorCount == 0L;
+    }
+
+    private boolean isFailedWindow(long successCount, long timeoutCount, long errorCount, long sampleCount) {
+        return sampleCount > 0L && successCount == 0L && timeoutCount + errorCount == sampleCount;
     }
 
     private URI targetUri() {
