@@ -34,4 +34,13 @@ class JContainerTest {
             assertFalse(JContainer.isLinux());
         }
     }
+
+    @Test
+    void testProfileCommandDispatchesToProfilerEntrypoint() {
+        UnsupportedOperationException error = assertThrows(
+                UnsupportedOperationException.class,
+                () -> JContainer.main(new String[]{"profile", "/rootfs", "/bin/echo", "hello"}));
+
+        assertEquals("Profile subcommand is not implemented yet", error.getMessage());
+    }
 }

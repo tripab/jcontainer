@@ -11,6 +11,7 @@ import java.io.IOException;
  *
  * Usage:
  *   java JContainer run [--image IMAGE] [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]
+ *   java JContainer profile [--image IMAGE] --output FILE [--append] <rootfs> <command> [args...]
  *   java JContainer list
  *   java JContainer stop <container-id>
  *   java JContainer logs <container-id>
@@ -41,6 +42,13 @@ public class JContainer {
                 }
                 ContainerRuntime runtime = createRuntime();
                 ContainerChild.run(runtime, args);
+            }
+            case "profile" -> {
+                if (args.length < 2) {
+                    usage();
+                    System.exit(1);
+                }
+                ContainerProfiler.run(args);
             }
             case "list" -> {
                 try {
@@ -106,13 +114,18 @@ public class JContainer {
     }
 
     private static void usage() {
-        System.err.println("""
+        System.err.println(usageText());
+    }
+
+    static String usageText() {
+        return """
                 Usage:
                   java org.jcontainer.JContainer run [--image IMAGE] [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]
+                  java org.jcontainer.JContainer profile [--image IMAGE] --output FILE [--append] <rootfs> <command> [args...]
                   java org.jcontainer.JContainer list
                   java org.jcontainer.JContainer stop <container-id>
                   java org.jcontainer.JContainer logs <container-id>
                   java org.jcontainer.JContainer rm <container-id>
-                  java org.jcontainer.JContainer child [--seccomp-policy FILE] <rootfs> <command> [args...]""");
+                  java org.jcontainer.JContainer child [--seccomp-policy FILE] <rootfs> <command> [args...]""";
     }
 }
