@@ -1,19 +1,33 @@
 package org.jcontainer;
 
+import java.io.IOException;
+
 /**
  * Parent-side scaffold for the autotune control loop.
- * The live control logic is added in later phases; for Phase 1 this owns lifecycle wiring.
+ * Early phases wire telemetry and probe collection before bundle decisions are added.
  */
 public final class AutotuneLoop implements AutoCloseable {
 
     private final ContainerState containerState;
     private final AutotuneConfig config;
     private final CgroupManager cgroupManager;
+    private final TelemetryCollector telemetryCollector;
+    private final ProbeAgent probeAgent;
 
     private boolean started;
     private boolean closed;
+    private boolean explorationBlocked = true;
+    private CgroupTelemetryWindow lastTelemetryWindow;
+    private ProbeObservation lastProbeObservation;
 
     public AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager) {
+        this(containerState, config, cgroupManager,
+                new TelemetryCollector(cgroupManager),
+                new ProbeAgent(config.probe()));
+    }
+
+    AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager,
+                 TelemetryCollector telemetryCollector, ProbeAgent probeAgent) {
         if (containerState == null) {
             throw new IllegalArgumentException("Container state is required");
         }
@@ -23,9 +37,17 @@ public final class AutotuneLoop implements AutoCloseable {
         if (cgroupManager == null) {
             throw new IllegalArgumentException("Cgroup manager is required");
         }
+        if (telemetryCollector == null) {
+            throw new IllegalArgumentException("Telemetry collector is required");
+        }
+        if (probeAgent == null) {
+            throw new IllegalArgumentException("Probe agent is required");
+        }
         this.containerState = containerState;
         this.config = config;
         this.cgroupManager = cgroupManager;
+        this.telemetryCollector = telemetryCollector;
+        this.probeAgent = probeAgent;
     }
 
     public void start() {
@@ -40,6 +62,18 @@ public final class AutotuneLoop implements AutoCloseable {
         closed = true;
     }
 
+    void runCycle() throws IOException {
+        if (!started) {
+            throw new IllegalStateException("Cannot run autotune cycle before loop start");
+        }
+        if (closed) {
+            throw new IllegalStateException("Cannot run autotune cycle on a closed loop");
+        }
+        lastTelemetryWindow = telemetryCollector.collectWindow();
+        lastProbeObservation = probeAgent.sample();
+        explorationBlocked = !lastProbeObservation.ready();
+    }
+
     ContainerState containerState() {
         return containerState;
     }
@@ -52,11 +86,23 @@ public final class AutotuneLoop implements AutoCloseable {
         return cgroupManager;
     }
 
+    CgroupTelemetryWindow lastTelemetryWindow() {
+        return lastTelemetryWindow;
+    }
+
+    ProbeObservation lastProbeObservation() {
+        return lastProbeObservation;
+    }
+
     boolean isStarted() {
         return started;
     }
 
     boolean isClosed() {
         return closed;
+    }
+
+    boolean isExplorationBlocked() {
+        return explorationBlocked;
     }
 }
