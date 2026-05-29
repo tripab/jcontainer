@@ -67,4 +67,14 @@ public final class ContainerProfiler {
         );
         return policy.validate(syscallTable);
     }
+
+    ProfileReport report(StraceParseResult parseResult) {
+        Objects.requireNonNull(parseResult, "parseResult");
+        return new ProfileReport(
+                parseResult.rootTrace(),
+                parseResult.descendantTraceCount(),
+                parseResult.syscallCount(),
+                parseResult.discardedLineCount()
+        );
+    }
 }

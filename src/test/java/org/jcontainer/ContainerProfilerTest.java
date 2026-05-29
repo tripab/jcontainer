@@ -124,6 +124,28 @@ class ContainerProfilerTest {
         assertEquals(List.of("exit_group", "read"), policy.syscalls());
     }
 
+    @Test
+    void testReportCapturesTraceSelectionAndCounts() {
+        ContainerProfiler profiler = new ContainerProfiler(
+                unusedPreflight(),
+                () -> "2026-05-29T00:00:00Z",
+                () -> LinuxSyscallTable.loadForArchitecture("linux-x86_64")
+        );
+        StraceParseResult parseResult = new StraceParseResult(
+                Path.of("/tmp/profile/trace.410"),
+                1,
+                java.util.Set.of("read", "write", "exit_group"),
+                2
+        );
+
+        ProfileReport report = profiler.report(parseResult);
+
+        assertEquals(Path.of("/tmp/profile/trace.410"), report.rootTrace());
+        assertEquals(1, report.descendantTraceCount());
+        assertEquals(3, report.syscallCount());
+        assertEquals(2, report.discardedLineCount());
+    }
+
     private static ProfilePreflight unusedPreflight() {
         return new ProfilePreflight(
                 true,

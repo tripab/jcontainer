@@ -3,10 +3,10 @@ package org.jcontainer;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,6 +20,10 @@ public class StraceParser {
     private static final Pattern RESUMED_SYSCALL_NAME = Pattern.compile("^<\\.\\.\\.\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+resumed>");
 
     public Set<String> parseProfile(Path traceBase) throws IOException {
+        return parse(traceBase).syscalls();
+    }
+
+    public StraceParseResult parse(Path traceBase) throws IOException {
         List<Path> traceFiles = findTraceFiles(traceBase);
         if (traceFiles.isEmpty()) {
             throw new IOException("No strace output files found for trace base: " + traceBase);
@@ -30,12 +34,13 @@ public class StraceParser {
         int payloadExecveLine = findLastSuccessfulExecve(rootLines, rootTrace);
 
         Set<String> syscalls = new LinkedHashSet<>();
-        collectSyscalls(rootLines.subList(payloadExecveLine + 1, rootLines.size()), syscalls);
+        int discardedLineCount = collectSyscalls(
+                rootLines.subList(payloadExecveLine + 1, rootLines.size()), syscalls);
 
         for (int i = 1; i < traceFiles.size(); i++) {
-            collectSyscalls(Files.readAllLines(traceFiles.get(i)), syscalls);
+            discardedLineCount += collectSyscalls(Files.readAllLines(traceFiles.get(i)), syscalls);
         }
-        return syscalls;
+        return new StraceParseResult(rootTrace, traceFiles.size() - 1, syscalls, discardedLineCount);
     }
 
     List<Path> findTraceFiles(Path traceBase) throws IOException {
@@ -91,31 +96,46 @@ public class StraceParser {
                 "Could not find final successful payload execve in root trace: " + rootTrace);
     }
 
-    private static void collectSyscalls(List<String> lines, Set<String> syscalls) {
+    private static int collectSyscalls(List<String> lines, Set<String> syscalls) {
+        int discardedLineCount = 0;
         for (String line : lines) {
-            parseSyscallName(line).ifPresent(syscalls::add);
+            Optional<String> syscallName = parseSyscallName(line);
+            if (syscallName.isPresent()) {
+                syscalls.add(syscallName.get());
+            } else if (isDiscardedUnparsableLine(line)) {
+                discardedLineCount++;
+            }
         }
+        return discardedLineCount;
     }
 
-    private static java.util.Optional<String> parseSyscallName(String line) {
+    private static Optional<String> parseSyscallName(String line) {
         String trimmed = line.trim();
         if (trimmed.isEmpty()
                 || trimmed.startsWith("strace:")
                 || trimmed.startsWith("+++")
                 || trimmed.startsWith("---")) {
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
 
         Matcher syscallMatcher = SYSCALL_NAME.matcher(trimmed);
         if (syscallMatcher.find()) {
-            return java.util.Optional.of(syscallMatcher.group(1));
+            return Optional.of(syscallMatcher.group(1));
         }
 
         Matcher resumedMatcher = RESUMED_SYSCALL_NAME.matcher(trimmed);
         if (resumedMatcher.find()) {
-            return java.util.Optional.of(resumedMatcher.group(1));
+            return Optional.of(resumedMatcher.group(1));
         }
 
-        return java.util.Optional.empty();
+        return Optional.empty();
+    }
+
+    private static boolean isDiscardedUnparsableLine(String line) {
+        String trimmed = line.trim();
+        return !trimmed.isEmpty()
+                && !trimmed.startsWith("strace:")
+                && !trimmed.startsWith("+++")
+                && !trimmed.startsWith("---");
     }
 }

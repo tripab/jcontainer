@@ -21,7 +21,8 @@ class StraceParserTest {
     @Test
     void testParseRootOnlyTrace() throws IOException {
         Path traceBase = tempDir.resolve("trace");
-        Files.writeString(traceBase.resolveSibling("trace.200"), """
+        Path rootTrace = traceBase.resolveSibling("trace.200");
+        Files.writeString(rootTrace, """
                 sethostname("container", 9) = 0
                 execve("/bin/echo", ["/bin/echo", "hello"], 0x0 /* 0 vars */) = 0
                 brk(NULL) = 0x1234
@@ -30,9 +31,13 @@ class StraceParserTest {
                 +++ exited with 0 +++
                 """);
 
-        Set<String> syscalls = parser.parseProfile(traceBase);
+        StraceParseResult result = parser.parse(traceBase);
 
-        assertEquals(Set.of("brk", "write", "exit_group"), syscalls);
+        assertEquals(rootTrace, result.rootTrace());
+        assertEquals(0, result.descendantTraceCount());
+        assertEquals(Set.of("brk", "write", "exit_group"), result.syscalls());
+        assertEquals(3, result.syscallCount());
+        assertEquals(0, result.discardedLineCount());
     }
 
     @Test
@@ -58,6 +63,7 @@ class StraceParserTest {
                 execve("/bin/sh", ["/bin/sh"], 0x0 /* 0 vars */) = 0
                 wait4(-1, 0x0, 0, NULL) = 411
                 rt_sigreturn({mask=[]}) = 0
+                garbage that should be discarded
                 """);
         Files.writeString(traceBase.resolveSibling("trace.411"), """
                 strace: Process 411 attached
@@ -67,9 +73,11 @@ class StraceParserTest {
                 +++ exited with 0 +++
                 """);
 
-        Set<String> syscalls = parser.parseProfile(traceBase);
+        StraceParseResult result = parser.parse(traceBase);
 
-        assertEquals(Set.of("wait4", "rt_sigreturn", "openat", "read"), syscalls);
+        assertEquals(Set.of("wait4", "rt_sigreturn", "openat", "read"), result.syscalls());
+        assertEquals(1, result.descendantTraceCount());
+        assertEquals(1, result.discardedLineCount());
     }
 
     @Test
