@@ -39,7 +39,9 @@ class JContainerTest {
     void testProfileCommandDispatchesToProfilerEntrypoint() {
         UnsupportedOperationException error = assertThrows(
                 UnsupportedOperationException.class,
-                () -> JContainer.main(new String[]{"profile", "/rootfs", "/bin/echo", "hello"}));
+                () -> JContainer.main(new String[]{
+                        "profile", "--output", "/tmp/policy.json", "/rootfs", "/bin/echo", "hello"
+                }));
 
         assertEquals("Profile subcommand is not implemented yet", error.getMessage());
     }
