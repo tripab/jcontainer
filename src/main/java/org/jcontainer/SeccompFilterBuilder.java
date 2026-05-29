@@ -5,11 +5,13 @@ import org.jcontainer.runtime.LinuxConstants;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * Builds the classic BPF seccomp filter for a validated policy.
  */
 public final class SeccompFilterBuilder {
+    static final String BOOTSTRAP_EXECVE_SYSCALL = "execve";
     static final int SECCOMP_DATA_NR_OFFSET = 0;
     static final int SECCOMP_DATA_ARCH_OFFSET = 4;
     static final int EPERM_ERRNO = 1;
@@ -26,9 +28,7 @@ public final class SeccompFilterBuilder {
         Objects.requireNonNull(table, "table");
 
         SeccompPolicy validatedPolicy = policy.validate(table);
-        List<Integer> syscallNumbers = validatedPolicy.syscalls().stream()
-                .map(table::numberForName)
-                .toList();
+        List<Integer> syscallNumbers = resolvedSyscallNumbers(validatedPolicy, table);
 
         List<SeccompProgram.Instruction> instructions = new ArrayList<>();
         instructions.add(loadAbsolute(SECCOMP_DATA_ARCH_OFFSET));
@@ -43,6 +43,14 @@ public final class SeccompFilterBuilder {
 
         appendAllowlistChecks(instructions, syscallNumbers);
         return new SeccompProgram(instructions);
+    }
+
+    private static List<Integer> resolvedSyscallNumbers(SeccompPolicy policy, LinuxSyscallTable table) {
+        return Stream.concat(policy.syscalls().stream(), Stream.of(BOOTSTRAP_EXECVE_SYSCALL))
+                .sorted()
+                .distinct()
+                .map(table::numberForName)
+                .toList();
     }
 
     private static void appendAllowlistChecks(List<SeccompProgram.Instruction> instructions, List<Integer> syscallNumbers) {

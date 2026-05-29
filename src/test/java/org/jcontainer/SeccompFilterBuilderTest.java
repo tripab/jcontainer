@@ -18,7 +18,7 @@ class SeccompFilterBuilderTest {
     private final SeccompFilterBuilder builder = new SeccompFilterBuilder();
 
     @Test
-    void testBuildForX8664AddsArchGuardX32GuardAndAllowlistChecks() {
+    void testBuildForX8664InjectsBootstrapExecveIntoAllowlist() {
         SeccompProgram program = builder.build(
                 new SeccompPolicy(
                         1,
@@ -41,6 +41,7 @@ class SeccompFilterBuilderTest {
                         Integer.toUnsignedLong(LinuxConstants.X32_SYSCALL_BIT)),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
                         LinuxConstants.SECCOMP_RET_ERRNO | SeccompFilterBuilder.EPERM_ERRNO),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 4, 0, 59),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 231),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 2, 0, 0),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0, 1),
@@ -51,7 +52,7 @@ class SeccompFilterBuilderTest {
     }
 
     @Test
-    void testBuildForAarch64OmitsX32Guard() {
+    void testBuildForAarch64OmitsX32GuardAndDoesNotDuplicateExecve() {
         SeccompProgram program = builder.build(
                 new SeccompPolicy(
                         1,
@@ -59,7 +60,7 @@ class SeccompFilterBuilderTest {
                         "2026-05-29T00:00:00Z",
                         List.of("/bin/echo", "hello"),
                         "errno:EPERM",
-                        List.of("read", "write")
+                        List.of("execve", "read", "write")
                 ),
                 LinuxSyscallTable.loadForArchitecture("linux-aarch64"));
 
@@ -70,6 +71,7 @@ class SeccompFilterBuilderTest {
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
                         LinuxConstants.SECCOMP_RET_ERRNO | SeccompFilterBuilder.EPERM_ERRNO),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_LD_ABS_W, 0, 0, SeccompFilterBuilder.SECCOMP_DATA_NR_OFFSET),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 221),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 2, 0, 63),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0, 64),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
