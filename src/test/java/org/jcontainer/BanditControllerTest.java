@@ -70,6 +70,50 @@ class BanditControllerTest {
     }
 
     @Test
+    void testChooseMovesToMediumBundleDuringColdStart() {
+        ResourceBundle small = bundle("small", 25, 64, 128);
+        ResourceBundle medium = bundle("medium", 50, 128, 256);
+        ResourceBundle large = bundle("large", 100, 256, 512);
+        BanditController controller = new BanditController(
+                new AutotuneConfig.BanditSpec(1.0, 0.0, 3),
+                context -> 0.25,
+                new FixedRandom(0.0, 1)
+        );
+
+        DecisionOutcome outcome = controller.choose(context(
+                small,
+                List.of(small, medium, large),
+                readyProbe(true, false)
+        ));
+
+        assertEquals(medium, outcome.selectedBundle());
+        assertEquals(0.25, outcome.reward());
+        assertTrue(outcome.rationale().contains("Cold-start"));
+    }
+
+    @Test
+    void testChooseHoldsMediumBundleUntilWarmupCompletes() {
+        ResourceBundle small = bundle("small", 25, 64, 128);
+        ResourceBundle medium = bundle("medium", 50, 128, 256);
+        ResourceBundle large = bundle("large", 100, 256, 512);
+        BanditController controller = new BanditController(
+                new AutotuneConfig.BanditSpec(1.0, 0.0, 3),
+                context -> 0.25,
+                new FixedRandom(0.0, 1)
+        );
+
+        DecisionOutcome outcome = controller.choose(context(
+                medium,
+                List.of(small, medium, large),
+                readyProbe(false, true)
+        ));
+
+        assertEquals(medium, outcome.selectedBundle());
+        assertEquals(0.25, outcome.reward());
+        assertTrue(outcome.rationale().contains("warmup"));
+    }
+
+    @Test
     void testRejectsNonFiniteRewardFromRewardFunction() {
         ResourceBundle medium = bundle("medium", 50, 128, 256);
         BanditController controller = new BanditController(
@@ -94,6 +138,12 @@ class BanditControllerTest {
     }
 
     private DecisionContext context(ResourceBundle currentBundle, List<ResourceBundle> candidates) {
+        return context(currentBundle, candidates, readyProbe(true, false));
+    }
+
+    private DecisionContext context(ResourceBundle currentBundle,
+                                    List<ResourceBundle> candidates,
+                                    ProbeObservation probe) {
         return new DecisionContext(
                 new CgroupTelemetryWindow(
                         Instant.parse("2026-05-27T09:00:00Z"),
@@ -114,27 +164,31 @@ class BanditControllerTest {
                         0.50,
                         0.25
                 ),
-                new ProbeObservation(
-                        Instant.parse("2026-05-27T09:00:01Z"),
-                        Duration.ofMillis(250),
-                        5L,
-                        5L,
-                        0L,
-                        0L,
-                        Duration.ofMillis(20),
-                        Duration.ofMillis(25),
-                        1.0,
-                        0.0,
-                        20.0,
-                        true,
-                        2,
-                        0,
-                        true,
-                        false,
-                        false
-                ),
+                probe,
                 currentBundle,
                 candidates
+        );
+    }
+
+    private ProbeObservation readyProbe(boolean ready, boolean decisionFrozen) {
+        return new ProbeObservation(
+                Instant.parse("2026-05-27T09:00:01Z"),
+                Duration.ofMillis(250),
+                5L,
+                ready ? 5L : 4L,
+                ready ? 0L : 1L,
+                0L,
+                Duration.ofMillis(20),
+                Duration.ofMillis(25),
+                ready ? 1.0 : 0.8,
+                ready ? 0.0 : 0.2,
+                20.0,
+                ready,
+                ready ? 2 : 1,
+                0,
+                ready,
+                decisionFrozen,
+                false
         );
     }
 

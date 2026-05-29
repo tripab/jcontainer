@@ -43,12 +43,29 @@ public final class BanditController implements DecisionEngine {
             throw new IllegalArgumentException("Decision context is required");
         }
 
+        ResourceBundle mediumBundle = selectNominalMediumBundle(context);
+        boolean firstDecision = rewardEstimates.isEmpty();
         double observedReward = rewardFunction.applyAsDouble(context);
         if (!Double.isFinite(observedReward)) {
             throw new IllegalArgumentException("Reward function must return a finite value");
         }
 
         recordReward(context.currentBundle(), observedReward);
+
+        if (firstDecision && !context.currentBundle().equals(mediumBundle)) {
+            return new DecisionOutcome(
+                    mediumBundle,
+                    observedReward,
+                    "Cold-start at the medium bundle before learning begins"
+            );
+        }
+
+        if (!context.probe().ready()) {
+            String rationale = context.currentBundle().equals(mediumBundle)
+                    ? "Hold the medium bundle until probe warmup completes"
+                    : "Move to the medium bundle until probe warmup completes";
+            return new DecisionOutcome(mediumBundle, observedReward, rationale);
+        }
 
         ResourceBundle selectedBundle;
         String rationale;
@@ -74,7 +91,18 @@ public final class BanditController implements DecisionEngine {
     }
 
     private boolean shouldExplore(DecisionContext context) {
-        return context.candidateBundles().size() > 1 && random.nextDouble() < banditSpec.epsilon();
+        return context.candidateBundles().size() > 1
+                && !context.probe().requiresDecisionFreeze()
+                && random.nextDouble() < banditSpec.epsilon();
+    }
+
+    private ResourceBundle selectNominalMediumBundle(DecisionContext context) {
+        for (ResourceBundle candidate : context.candidateBundles()) {
+            if (candidate.name().equalsIgnoreCase("medium")) {
+                return candidate;
+            }
+        }
+        return context.candidateBundles().get(context.candidateBundles().size() / 2);
     }
 
     private ResourceBundle chooseExplorationCandidate(DecisionContext context) {
