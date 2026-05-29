@@ -1,6 +1,7 @@
 package org.jcontainer;
 
 import org.jcontainer.runtime.LinuxConstants;
+import org.jcontainer.runtime.SeccompInstructionBudget;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,6 +30,7 @@ public final class SeccompFilterBuilder {
 
         SeccompPolicy validatedPolicy = policy.validate(table);
         List<Integer> syscallNumbers = resolvedSyscallNumbers(validatedPolicy, table);
+        SeccompInstructionBudget.validateAllowlistSize(validatedPolicy.arch(), syscallNumbers.size());
 
         List<SeccompProgram.Instruction> instructions = new ArrayList<>();
         instructions.add(loadAbsolute(SECCOMP_DATA_ARCH_OFFSET));
@@ -42,7 +44,15 @@ public final class SeccompFilterBuilder {
         }
 
         appendAllowlistChecks(instructions, syscallNumbers);
-        return new SeccompProgram(instructions);
+        SeccompProgram program = new SeccompProgram(instructions);
+        int expectedInstructionCount = SeccompInstructionBudget.instructionCount(
+                validatedPolicy.arch(), syscallNumbers.size());
+        if (program.instructionCount() != expectedInstructionCount) {
+            throw new IllegalStateException(
+                    "Seccomp filter builder emitted " + program.instructionCount()
+                            + " instructions, expected " + expectedInstructionCount);
+        }
+        return program;
     }
 
     private static List<Integer> resolvedSyscallNumbers(SeccompPolicy policy, LinuxSyscallTable table) {

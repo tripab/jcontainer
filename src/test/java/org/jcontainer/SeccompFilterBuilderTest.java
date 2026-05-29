@@ -10,9 +10,12 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class SeccompFilterBuilderTest {
     private final SeccompFilterBuilder builder = new SeccompFilterBuilder();
@@ -122,6 +125,28 @@ class SeccompFilterBuilderTest {
     }
 
     @Test
+    void testBuildRejectsOversizedAllowlistAfterBootstrapExecveInjection() throws ReflectiveOperationException {
+        LinuxSyscallTable table = syntheticTable("linux-x86_64", 4057);
+        List<String> syscalls = syntheticSyscalls(4056);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> builder.build(
+                        new SeccompPolicy(
+                                1,
+                                "linux-x86_64",
+                                "2026-05-29T00:00:00Z",
+                                List.of("/bin/echo", "hello"),
+                                "errno:EPERM",
+                                syscalls
+                        ),
+                        table));
+
+        assertEquals(
+                "Seccomp allowlist for linux-x86_64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4056",
+                error.getMessage());
+    }
+
+    @Test
     void testMaterializeWritesSockFilterAndSockFprogStructs() {
         SeccompProgram program = builder.build(
                 new SeccompPolicy(
@@ -161,5 +186,25 @@ class SeccompFilterBuilderTest {
                     .map(line -> line.split("\\s+")[1])
                     .toList();
         }
+    }
+
+    private static LinuxSyscallTable syntheticTable(String architecture, int syscallCount)
+            throws ReflectiveOperationException {
+        var constructor = LinuxSyscallTable.class
+                .getDeclaredConstructor(String.class, Map.class);
+        constructor.setAccessible(true);
+
+        Map<String, Integer> syscallNumbers = new LinkedHashMap<>();
+        syscallNumbers.put("execve", 59);
+        for (int i = 0; i < syscallCount - 1; i++) {
+            syscallNumbers.put(String.format("syscall%04d", i), i);
+        }
+        return constructor.newInstance(architecture, syscallNumbers);
+    }
+
+    private static List<String> syntheticSyscalls(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(i -> String.format("syscall%04d", i))
+                .toList();
     }
 }

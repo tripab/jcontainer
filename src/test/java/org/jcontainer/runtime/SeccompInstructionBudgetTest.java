@@ -12,21 +12,23 @@ class SeccompInstructionBudgetTest {
     void testFixedOverheadForX86_64IncludesX32Guard() {
         assertEquals(8, SeccompInstructionBudget.fixedOverhead("x86_64"));
         assertEquals(8, SeccompInstructionBudget.fixedOverhead("amd64"));
+        assertEquals(8, SeccompInstructionBudget.fixedOverhead("linux-x86_64"));
     }
 
     @Test
     void testFixedOverheadForAarch64() {
         assertEquals(6, SeccompInstructionBudget.fixedOverhead("aarch64"));
+        assertEquals(6, SeccompInstructionBudget.fixedOverhead("linux-aarch64"));
     }
 
     @Test
     void testMaxAllowlistSizeForX86_64() {
-        assertEquals(4088, SeccompInstructionBudget.maxAllowlistSize("x86_64"));
+        assertEquals(4056, SeccompInstructionBudget.maxAllowlistSize("x86_64"));
     }
 
     @Test
     void testMaxAllowlistSizeForAarch64() {
-        assertEquals(4090, SeccompInstructionBudget.maxAllowlistSize("aarch64"));
+        assertEquals(4058, SeccompInstructionBudget.maxAllowlistSize("aarch64"));
     }
 
     @Test
@@ -36,26 +38,32 @@ class SeccompInstructionBudgetTest {
     }
 
     @Test
+    void testInstructionCountIncludesGroupedTrampolineOverhead() {
+        assertEquals(272, SeccompInstructionBudget.instructionCount("linux-x86_64", 260));
+        assertEquals(270, SeccompInstructionBudget.instructionCount("linux-aarch64", 260));
+    }
+
+    @Test
     void testValidateAllowlistSizeAcceptsExactLimit() {
-        assertDoesNotThrow(() -> SeccompInstructionBudget.validateAllowlistSize("x86_64", 4088));
-        assertDoesNotThrow(() -> SeccompInstructionBudget.validateAllowlistSize("aarch64", 4090));
+        assertDoesNotThrow(() -> SeccompInstructionBudget.validateAllowlistSize("linux-x86_64", 4056));
+        assertDoesNotThrow(() -> SeccompInstructionBudget.validateAllowlistSize("linux-aarch64", 4058));
     }
 
     @Test
     void testValidateAllowlistSizeRejectsOversizedX86_64Allowlist() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> SeccompInstructionBudget.validateAllowlistSize("x86_64", 4089));
+                () -> SeccompInstructionBudget.validateAllowlistSize("linux-x86_64", 4057));
         assertEquals(
-                "Linear seccomp allowlist for x86_64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4088",
+                "Seccomp allowlist for linux-x86_64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4056",
                 error.getMessage());
     }
 
     @Test
     void testValidateAllowlistSizeRejectsOversizedAarch64Allowlist() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                () -> SeccompInstructionBudget.validateAllowlistSize("aarch64", 4091));
+                () -> SeccompInstructionBudget.validateAllowlistSize("linux-aarch64", 4059));
         assertEquals(
-                "Linear seccomp allowlist for aarch64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4090",
+                "Seccomp allowlist for linux-aarch64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4058",
                 error.getMessage());
     }
 
