@@ -150,6 +150,103 @@ class AutotuneLoopTest {
         }
     }
 
+    @Test
+    void testRunCycleBuildsDecisionContextAndUsesDecisionEngineWhenSafe() throws Exception {
+        CgroupManager cgroupManager = createManager("loopdecision");
+        writeTelemetryFiles(cgroupManager);
+
+        try (ToyHttpService service = new ToyHttpService(0, Duration.ofMillis(5))) {
+            service.start();
+            AutotuneConfig config = sampleAutotuneConfig("127.0.0.1", service.getPort());
+            ProbeSpec probeSpec = new ProbeSpec("http", "127.0.0.1", service.getPort(), "/",
+                    Duration.ofMillis(250));
+            ProbeAgent probeAgent = new ProbeAgent(
+                    probeSpec,
+                    java.net.http.HttpClient.newBuilder().connectTimeout(probeSpec.timeout()).build(),
+                    java.time.Clock.systemUTC(),
+                    2,
+                    1,
+                    3,
+                    1.0
+            );
+            DecisionEngine decisionEngine = context -> new DecisionOutcome(
+                    context.candidateBundles().get(0),
+                    0.42,
+                    "Step down for test"
+            );
+            AutotuneLoop loop = new AutotuneLoop(
+                    sampleContainerState(),
+                    config,
+                    cgroupManager,
+                    new TelemetryCollector(cgroupManager),
+                    probeAgent,
+                    new SafetyGuard(config.safety(), config.slo()),
+                    decisionEngine
+            );
+
+            loop.start();
+            loop.runCycle();
+
+            assertNotNull(loop.lastDecisionContext());
+            assertNotNull(loop.lastDecisionOutcome());
+            assertEquals("medium", loop.lastDecisionContext().currentBundle().name());
+            assertEquals("small", loop.lastDecisionOutcome().selectedBundle().name());
+            assertEquals(loop.lastDecisionOutcome().selectedBundle(), loop.lastSelectedBundle());
+            assertEquals(loop.lastSelectedBundle(), loop.currentBundle());
+            assertNull(loop.lastSafetyOverrideBundle());
+            assertFalse(loop.isExplorationBlocked());
+        }
+    }
+
+    @Test
+    void testRunCycleUsesSafetyOverrideBeforeDecisionEngine() throws Exception {
+        CgroupManager cgroupManager = createManager("loopsafety");
+        writeTelemetryFiles(cgroupManager);
+        Files.writeString(cgroupManager.getCgroupPath().resolve("memory.pressure"), """
+                some avg10=0.00 avg60=0.00 avg300=0.00 total=1234
+                full avg10=1.00 avg60=0.10 avg300=0.00 total=567
+                """);
+
+        try (ToyHttpService service = new ToyHttpService(0, Duration.ofMillis(5))) {
+            service.start();
+            AutotuneConfig config = sampleAutotuneConfig("127.0.0.1", service.getPort());
+            ProbeSpec probeSpec = new ProbeSpec("http", "127.0.0.1", service.getPort(), "/",
+                    Duration.ofMillis(250));
+            ProbeAgent probeAgent = new ProbeAgent(
+                    probeSpec,
+                    java.net.http.HttpClient.newBuilder().connectTimeout(probeSpec.timeout()).build(),
+                    java.time.Clock.systemUTC(),
+                    2,
+                    1,
+                    3,
+                    1.0
+            );
+            DecisionEngine decisionEngine = context -> {
+                fail("Decision engine should not be called when safety override is active");
+                return new DecisionOutcome(context.currentBundle(), 0.0, "unreachable");
+            };
+            AutotuneLoop loop = new AutotuneLoop(
+                    sampleContainerState(),
+                    config,
+                    cgroupManager,
+                    new TelemetryCollector(cgroupManager),
+                    probeAgent,
+                    new SafetyGuard(config.safety(), config.slo()),
+                    decisionEngine
+            );
+
+            loop.start();
+            loop.runCycle();
+
+            assertNull(loop.lastDecisionOutcome());
+            assertNotNull(loop.lastSafetyOverrideBundle());
+            assertEquals("large", loop.lastSafetyOverrideBundle().name());
+            assertEquals(loop.lastSafetyOverrideBundle(), loop.lastSelectedBundle());
+            assertEquals(loop.lastSelectedBundle(), loop.currentBundle());
+            assertTrue(loop.isExplorationBlocked());
+        }
+    }
+
     private ContainerState sampleContainerState() {
         return ContainerState.createPending("/rootfs", "alpine", new String[]{"/bin/httpd"})
                 .withAutotuneConfig(Path.of("configs/autotune.json"));
@@ -185,23 +282,32 @@ class AutotuneLoopTest {
     }
 
     private void writeTelemetryFiles(CgroupManager manager) throws IOException {
+        writeTelemetryFiles(manager, 1048576L, 0L, 0L, 0L, 0L);
+    }
+
+    private void writeTelemetryFiles(CgroupManager manager,
+                                     long memoryCurrentBytes,
+                                     long memoryMaxEvents,
+                                     long memoryOomEvents,
+                                     long memoryOomKillEvents,
+                                     long memoryHighEvents) throws IOException {
         Files.writeString(manager.getCgroupPath().resolve("cpu.stat"), """
                 usage_usec 123456
                 nr_periods 789
                 nr_throttled 12
                 throttled_usec 3456
                 """);
-        Files.writeString(manager.getCgroupPath().resolve("memory.current"), "1048576\n");
+        Files.writeString(manager.getCgroupPath().resolve("memory.current"), memoryCurrentBytes + "\n");
         Files.writeString(manager.getCgroupPath().resolve("memory.events"), """
                 low 1
-                high 2
-                max 3
-                oom 4
-                oom_kill 5
-                """);
+                high %d
+                max %d
+                oom %d
+                oom_kill %d
+                """.formatted(memoryHighEvents, memoryMaxEvents, memoryOomEvents, memoryOomKillEvents));
         Files.writeString(manager.getCgroupPath().resolve("memory.pressure"), """
-                some avg10=0.50 avg60=0.10 avg300=0.00 total=1234
-                full avg10=0.25 avg60=0.05 avg300=0.00 total=567
+                some avg10=0.00 avg60=0.00 avg300=0.00 total=1234
+                full avg10=0.00 avg60=0.00 avg300=0.00 total=567
                 """);
     }
 

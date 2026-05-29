@@ -1,10 +1,12 @@
 package org.jcontainer;
 
 import java.io.IOException;
+import java.util.Optional;
 
 /**
  * Parent-side scaffold for the autotune control loop.
- * Early phases wire telemetry and probe collection before bundle decisions are added.
+ * Early phases wire telemetry, probe collection, and controller decisions before live bundle
+ * application is added.
  */
 public final class AutotuneLoop implements AutoCloseable {
 
@@ -13,22 +15,39 @@ public final class AutotuneLoop implements AutoCloseable {
     private final CgroupManager cgroupManager;
     private final TelemetryCollector telemetryCollector;
     private final ProbeAgent probeAgent;
+    private final SafetyGuard safetyGuard;
+    private final DecisionEngine decisionEngine;
 
     private boolean started;
     private boolean closed;
     private boolean explorationBlocked = true;
+    private ResourceBundle currentBundle;
     private ResourceBundle safeFallbackBundle;
     private CgroupTelemetryWindow lastTelemetryWindow;
     private ProbeObservation lastProbeObservation;
+    private DecisionContext lastDecisionContext;
+    private DecisionOutcome lastDecisionOutcome;
+    private ResourceBundle lastSelectedBundle;
+    private ResourceBundle lastSafetyOverrideBundle;
 
     public AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager) {
         this(containerState, config, cgroupManager,
                 new TelemetryCollector(cgroupManager),
-                new ProbeAgent(config.probe()));
+                new ProbeAgent(config.probe()),
+                new SafetyGuard(config.safety(), config.slo()),
+                new BanditController(config.bandit(), config.slo(), new DecisionRewardFunction(config.slo())));
     }
 
     AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager,
                  TelemetryCollector telemetryCollector, ProbeAgent probeAgent) {
+        this(containerState, config, cgroupManager, telemetryCollector, probeAgent,
+                new SafetyGuard(config.safety(), config.slo()),
+                new BanditController(config.bandit(), config.slo(), new DecisionRewardFunction(config.slo())));
+    }
+
+    AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager,
+                 TelemetryCollector telemetryCollector, ProbeAgent probeAgent,
+                 SafetyGuard safetyGuard, DecisionEngine decisionEngine) {
         if (containerState == null) {
             throw new IllegalArgumentException("Container state is required");
         }
@@ -44,11 +63,21 @@ public final class AutotuneLoop implements AutoCloseable {
         if (probeAgent == null) {
             throw new IllegalArgumentException("Probe agent is required");
         }
+        if (safetyGuard == null) {
+            throw new IllegalArgumentException("Safety guard is required");
+        }
+        if (decisionEngine == null) {
+            throw new IllegalArgumentException("Decision engine is required");
+        }
         this.containerState = containerState;
         this.config = config;
         this.cgroupManager = cgroupManager;
         this.telemetryCollector = telemetryCollector;
         this.probeAgent = probeAgent;
+        this.safetyGuard = safetyGuard;
+        this.decisionEngine = decisionEngine;
+        this.currentBundle = selectNominalMediumBundle(config);
+        this.lastSelectedBundle = currentBundle;
     }
 
     public void start() {
@@ -72,10 +101,26 @@ public final class AutotuneLoop implements AutoCloseable {
         }
         lastTelemetryWindow = telemetryCollector.collectWindow();
         lastProbeObservation = probeAgent.sample();
-        explorationBlocked = lastProbeObservation.requiresDecisionFreeze();
+        lastDecisionContext = new DecisionContext(lastTelemetryWindow, lastProbeObservation, currentBundle, config.bundles());
+
+        Optional<ResourceBundle> safetyOverride = safetyGuard.override(lastDecisionContext);
+        lastSafetyOverrideBundle = safetyOverride.orElse(null);
+        explorationBlocked = lastProbeObservation.requiresDecisionFreeze() || safetyGuard.isExplorationFrozen();
         safeFallbackBundle = lastProbeObservation.requiresSafeFallback()
                 ? selectSafeFallbackBundle(config)
                 : null;
+
+        if (safetyOverride.isPresent()) {
+            lastDecisionOutcome = null;
+            lastSelectedBundle = safetyOverride.get();
+        } else {
+            lastDecisionOutcome = decisionEngine.choose(lastDecisionContext);
+            if (!config.bundles().contains(lastDecisionOutcome.selectedBundle())) {
+                throw new IllegalStateException("Decision engine selected a bundle outside the configured candidates");
+            }
+            lastSelectedBundle = lastDecisionOutcome.selectedBundle();
+        }
+        currentBundle = lastSelectedBundle;
     }
 
     ContainerState containerState() {
@@ -98,6 +143,22 @@ public final class AutotuneLoop implements AutoCloseable {
         return lastProbeObservation;
     }
 
+    DecisionContext lastDecisionContext() {
+        return lastDecisionContext;
+    }
+
+    DecisionOutcome lastDecisionOutcome() {
+        return lastDecisionOutcome;
+    }
+
+    ResourceBundle lastSelectedBundle() {
+        return lastSelectedBundle;
+    }
+
+    ResourceBundle lastSafetyOverrideBundle() {
+        return lastSafetyOverrideBundle;
+    }
+
     ResourceBundle safeFallbackBundle() {
         return safeFallbackBundle;
     }
@@ -114,7 +175,20 @@ public final class AutotuneLoop implements AutoCloseable {
         return explorationBlocked;
     }
 
+    ResourceBundle currentBundle() {
+        return currentBundle;
+    }
+
     private static ResourceBundle selectSafeFallbackBundle(AutotuneConfig config) {
         return config.bundles().get(config.bundles().size() - 1);
+    }
+
+    private static ResourceBundle selectNominalMediumBundle(AutotuneConfig config) {
+        for (ResourceBundle candidate : config.bundles()) {
+            if (candidate.name().equalsIgnoreCase("medium")) {
+                return candidate;
+            }
+        }
+        return config.bundles().get(config.bundles().size() / 2);
     }
 }
