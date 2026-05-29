@@ -195,6 +195,9 @@ class AutotuneLoopTest {
             assertEquals(loop.lastSelectedBundle(), loop.currentBundle());
             assertNull(loop.lastSafetyOverrideBundle());
             assertFalse(loop.isExplorationBlocked());
+            assertEquals("25000 100000\n", Files.readString(cgroupManager.getCgroupPath().resolve("cpu.max")));
+            assertEquals("67108864\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.high")));
+            assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
         }
     }
 
@@ -244,6 +247,9 @@ class AutotuneLoopTest {
             assertEquals(loop.lastSafetyOverrideBundle(), loop.lastSelectedBundle());
             assertEquals(loop.lastSelectedBundle(), loop.currentBundle());
             assertTrue(loop.isExplorationBlocked());
+            assertEquals("100000 100000\n", Files.readString(cgroupManager.getCgroupPath().resolve("cpu.max")));
+            assertEquals("268435456\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.high")));
+            assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
         }
     }
 

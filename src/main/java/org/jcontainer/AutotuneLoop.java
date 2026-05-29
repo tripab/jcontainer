@@ -5,8 +5,8 @@ import java.util.Optional;
 
 /**
  * Parent-side scaffold for the autotune control loop.
- * Early phases wire telemetry, probe collection, and controller decisions before live bundle
- * application is added.
+ * Wires telemetry, probe collection, safety overrides, controller decisions, and online bundle
+ * application.
  */
 public final class AutotuneLoop implements AutoCloseable {
 
@@ -120,6 +120,7 @@ public final class AutotuneLoop implements AutoCloseable {
             }
             lastSelectedBundle = lastDecisionOutcome.selectedBundle();
         }
+        cgroupManager.applyBundle(lastSelectedBundle);
         currentBundle = lastSelectedBundle;
     }
 

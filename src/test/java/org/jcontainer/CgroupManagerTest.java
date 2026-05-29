@@ -98,6 +98,20 @@ class CgroupManagerTest {
     }
 
     @Test
+    void testApplyBundleUpdatesOnlineTunablesOnly() throws IOException {
+        CgroupManager mgr = createManager("test05-bundle");
+        mgr.create();
+        Files.writeString(mgr.getCgroupPath().resolve("memory.max"), "536870912\n");
+        ResourceBundle bundle = new ResourceBundle("small", 25, 67108864L, 134217728L);
+
+        mgr.applyBundle(bundle);
+
+        assertEquals("25000 100000\n", Files.readString(mgr.getCgroupPath().resolve("cpu.max")));
+        assertEquals("67108864\n", Files.readString(mgr.getCgroupPath().resolve("memory.high")));
+        assertEquals("536870912\n", Files.readString(mgr.getCgroupPath().resolve("memory.max")));
+    }
+
+    @Test
     void testAddProcess() throws IOException {
         CgroupManager mgr = createManager("test06");
         mgr.create();

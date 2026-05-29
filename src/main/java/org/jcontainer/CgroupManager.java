@@ -88,6 +88,21 @@ public class CgroupManager implements AutoCloseable {
     }
 
     /**
+     * Apply online-adjustable resource controls for an autotune bundle.
+     *
+     * memory.max is intentionally excluded here because lowering a hard memory
+     * cap for a live workload is brittle; emergency hard-limit changes should be
+     * handled through a separate, explicit path.
+     */
+    public void applyBundle(ResourceBundle bundle) throws IOException {
+        if (bundle == null) {
+            throw new IllegalArgumentException("Resource bundle is required");
+        }
+        setCpuLimit(bundle.cpuPercent());
+        setMemoryHigh(bundle.memoryHighBytes());
+    }
+
+    /**
      * Add a process to this cgroup.
      */
     public void addProcess(long pid) throws IOException {
