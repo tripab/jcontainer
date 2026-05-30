@@ -16,6 +16,15 @@ import static org.jcontainer.runtime.LinuxConstants.*;
  * Uses the {@code unshare} command for PID namespace (requires fork).
  */
 public class LinuxRuntime implements ContainerRuntime {
+    private final SeccompManager seccompManager;
+
+    public LinuxRuntime() {
+        this(new SeccompManager());
+    }
+
+    LinuxRuntime(SeccompManager seccompManager) {
+        this.seccompManager = seccompManager;
+    }
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
@@ -107,8 +116,7 @@ public class LinuxRuntime implements ContainerRuntime {
     }
 
     protected void installSeccompPolicy(Path seccompPolicy) {
-        throw new UnsupportedOperationException(
-                "Seccomp policy installation is not implemented yet: " + seccompPolicy);
+        seccompManager.install(seccompPolicy);
     }
 
     protected void exec(ResolvedExecutable executable) {
