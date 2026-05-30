@@ -17,6 +17,7 @@ public final class AutotuneLoop implements AutoCloseable {
     private final ProbeAgent probeAgent;
     private final SafetyGuard safetyGuard;
     private final DecisionEngine decisionEngine;
+    private final AutotuneDecisionLogger decisionLogger;
 
     private boolean started;
     private boolean closed;
@@ -29,6 +30,7 @@ public final class AutotuneLoop implements AutoCloseable {
     private DecisionOutcome lastDecisionOutcome;
     private ResourceBundle lastSelectedBundle;
     private ResourceBundle lastSafetyOverrideBundle;
+    private AutotuneDecisionLogEntry lastDecisionLogEntry;
 
     public AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager) {
         this(containerState, config, cgroupManager,
@@ -48,6 +50,14 @@ public final class AutotuneLoop implements AutoCloseable {
     AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager,
                  TelemetryCollector telemetryCollector, ProbeAgent probeAgent,
                  SafetyGuard safetyGuard, DecisionEngine decisionEngine) {
+        this(containerState, config, cgroupManager, telemetryCollector, probeAgent, safetyGuard,
+                decisionEngine, AutotuneDecisionLogger.stderr());
+    }
+
+    AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager,
+                 TelemetryCollector telemetryCollector, ProbeAgent probeAgent,
+                 SafetyGuard safetyGuard, DecisionEngine decisionEngine,
+                 AutotuneDecisionLogger decisionLogger) {
         if (containerState == null) {
             throw new IllegalArgumentException("Container state is required");
         }
@@ -69,6 +79,9 @@ public final class AutotuneLoop implements AutoCloseable {
         if (decisionEngine == null) {
             throw new IllegalArgumentException("Decision engine is required");
         }
+        if (decisionLogger == null) {
+            throw new IllegalArgumentException("Decision logger is required");
+        }
         this.containerState = containerState;
         this.config = config;
         this.cgroupManager = cgroupManager;
@@ -76,6 +89,7 @@ public final class AutotuneLoop implements AutoCloseable {
         this.probeAgent = probeAgent;
         this.safetyGuard = safetyGuard;
         this.decisionEngine = decisionEngine;
+        this.decisionLogger = decisionLogger;
         this.currentBundle = selectNominalMediumBundle(config);
         this.lastSelectedBundle = currentBundle;
     }
@@ -121,6 +135,17 @@ public final class AutotuneLoop implements AutoCloseable {
             lastSelectedBundle = lastDecisionOutcome.selectedBundle();
         }
         cgroupManager.applyBundle(lastSelectedBundle);
+        lastDecisionLogEntry = AutotuneDecisionLogEntry.from(
+                containerState,
+                lastDecisionContext,
+                lastDecisionOutcome,
+                lastSelectedBundle,
+                lastSafetyOverrideBundle,
+                explorationBlocked,
+                safetyGuard.isExplorationFrozen(),
+                safeFallbackBundle
+        );
+        decisionLogger.log(lastDecisionLogEntry);
         currentBundle = lastSelectedBundle;
     }
 
@@ -158,6 +183,10 @@ public final class AutotuneLoop implements AutoCloseable {
 
     ResourceBundle lastSafetyOverrideBundle() {
         return lastSafetyOverrideBundle;
+    }
+
+    AutotuneDecisionLogEntry lastDecisionLogEntry() {
+        return lastDecisionLogEntry;
     }
 
     ResourceBundle safeFallbackBundle() {

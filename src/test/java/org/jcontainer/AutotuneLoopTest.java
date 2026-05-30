@@ -1,5 +1,7 @@
 package org.jcontainer;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.jcontainer.support.ToyHttpService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -10,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.net.InetSocketAddress;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -174,6 +177,7 @@ class AutotuneLoopTest {
                     0.42,
                     "Step down for test"
             );
+            List<AutotuneDecisionLogEntry> decisionLogs = new ArrayList<>();
             AutotuneLoop loop = new AutotuneLoop(
                     sampleContainerState(),
                     config,
@@ -181,7 +185,8 @@ class AutotuneLoopTest {
                     new TelemetryCollector(cgroupManager),
                     probeAgent,
                     new SafetyGuard(config.safety(), config.slo()),
-                    decisionEngine
+                    decisionEngine,
+                    decisionLogs::add
             );
 
             loop.start();
@@ -198,6 +203,21 @@ class AutotuneLoopTest {
             assertEquals("25000 100000\n", Files.readString(cgroupManager.getCgroupPath().resolve("cpu.max")));
             assertEquals("67108864\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.high")));
             assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
+            assertEquals(1, decisionLogs.size());
+            AutotuneDecisionLogEntry logEntry = decisionLogs.get(0);
+            assertEquals(loop.lastDecisionLogEntry(), logEntry);
+            assertEquals("autotune.decision", logEntry.event());
+            assertEquals("decision_engine", logEntry.action().source());
+            assertEquals("medium", logEntry.action().previousBundle());
+            assertEquals("small", logEntry.action().selectedBundle());
+            assertEquals(0.42, logEntry.reward());
+            assertFalse(logEntry.safety().overrideApplied());
+            assertFalse(logEntry.exploration().blocked());
+            assertEquals(1048576L, logEntry.observation().memoryCurrentBytes());
+            JsonObject json = JsonParser.parseString(AutotuneDecisionLogger.GSON.toJson(logEntry)).getAsJsonObject();
+            assertEquals("autotune.decision", json.get("event").getAsString());
+            assertEquals("small", json.getAsJsonObject("action").get("selectedBundle").getAsString());
+            assertEquals(1048576L, json.getAsJsonObject("observation").get("memoryCurrentBytes").getAsLong());
         }
     }
 
@@ -228,6 +248,7 @@ class AutotuneLoopTest {
                 fail("Decision engine should not be called when safety override is active");
                 return new DecisionOutcome(context.currentBundle(), 0.0, "unreachable");
             };
+            List<AutotuneDecisionLogEntry> decisionLogs = new ArrayList<>();
             AutotuneLoop loop = new AutotuneLoop(
                     sampleContainerState(),
                     config,
@@ -235,7 +256,8 @@ class AutotuneLoopTest {
                     new TelemetryCollector(cgroupManager),
                     probeAgent,
                     new SafetyGuard(config.safety(), config.slo()),
-                    decisionEngine
+                    decisionEngine,
+                    decisionLogs::add
             );
 
             loop.start();
@@ -250,6 +272,16 @@ class AutotuneLoopTest {
             assertEquals("100000 100000\n", Files.readString(cgroupManager.getCgroupPath().resolve("cpu.max")));
             assertEquals("268435456\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.high")));
             assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
+            assertEquals(1, decisionLogs.size());
+            AutotuneDecisionLogEntry logEntry = decisionLogs.get(0);
+            assertEquals("safety_override", logEntry.action().source());
+            assertEquals("large", logEntry.action().selectedBundle());
+            assertNull(logEntry.reward());
+            assertTrue(logEntry.safety().overrideApplied());
+            assertEquals("large", logEntry.safety().overrideBundle());
+            assertTrue(logEntry.exploration().blocked());
+            assertTrue(logEntry.exploration().safetyFrozen());
+            assertEquals(1.0, logEntry.observation().memoryPressureFullPct());
         }
     }
 
