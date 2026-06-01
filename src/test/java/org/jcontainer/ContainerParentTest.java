@@ -3,6 +3,8 @@ package org.jcontainer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -58,5 +60,19 @@ class ContainerParentTest {
                 () -> ContainerParent.resolveSeccompPolicyDigest(policyPath));
 
         assertTrue(error.getMessage().startsWith("Invalid seccomp policy " + policyPath + ": "));
+    }
+
+    @Test
+    void testTeeStreamPreservesDeniedSyscallDiagnosticsInLog() throws Exception {
+        ByteArrayInputStream stderr = new ByteArrayInputStream(
+                "sh: uname: Operation not permitted\n".getBytes());
+        ByteArrayOutputStream terminal = new ByteArrayOutputStream();
+        Path stderrLog = tempDir.resolve("stderr.log");
+
+        Thread thread = ContainerParent.teeStream(stderr, terminal, stderrLog);
+        thread.join(5000);
+
+        assertEquals("sh: uname: Operation not permitted\n", terminal.toString());
+        assertEquals("sh: uname: Operation not permitted\n", Files.readString(stderrLog));
     }
 }
