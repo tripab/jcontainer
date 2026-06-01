@@ -140,39 +140,7 @@ class ContainerParentTest {
     @Test
     void testLoadAutotuneConfigReadsFile() throws IOException {
         Path configPath = tempDir.resolve("autotune.json");
-        Files.writeString(configPath, """
-                {
-                  "controlInterval": "1s",
-                  "probe": {
-                    "mode": "http",
-                    "host": "10.0.0.2",
-                    "port": 8080,
-                    "path": "/health",
-                    "timeout": "250ms"
-                  },
-                  "bundles": [
-                    {
-                      "name": "small",
-                      "cpuPercent": 25,
-                      "memoryHighBytes": 67108864,
-                      "memoryMaxBytes": 134217728
-                    }
-                  ],
-                  "slo": {
-                    "p95LatencyMillis": 200,
-                    "maxTimeoutRate": 0.01
-                  },
-                  "bandit": {
-                    "epsilon": 0.2,
-                    "minEpsilon": 0.05,
-                    "cooldownCycles": 3
-                  },
-                  "safety": {
-                    "consecutiveSloMisses": 3,
-                    "oomFreezeCycles": 5
-                  }
-                }
-                """);
+        Files.writeString(configPath, autotuneConfigJson("10.0.0.2"));
         ContainerConfig config = ContainerConfig.parse(
                 new String[]{"run", "--net", "--autotune-config", configPath.toString(), "/rootfs", "/bin/httpd"});
 
@@ -180,6 +148,19 @@ class ContainerParentTest {
 
         assertNotNull(autotuneConfig);
         assertEquals("10.0.0.2", autotuneConfig.probe().host());
+    }
+
+    @Test
+    void testLoadAutotuneConfigRequiresNetworkManagerProbeAddress() throws IOException {
+        Path configPath = tempDir.resolve("autotune-wrong-host.json");
+        Files.writeString(configPath, autotuneConfigJson("127.0.0.1"));
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--autotune-config", configPath.toString(), "/rootfs", "/bin/httpd"});
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> ContainerParent.loadAutotuneConfig(config));
+
+        assertTrue(error.getMessage().contains("10.0.0.2"));
     }
 
     @Test
@@ -233,5 +214,41 @@ class ContainerParentTest {
                 new AutotuneConfig.BanditSpec(0.2, 0.05, 3),
                 new AutotuneConfig.SafetySpec(3, 5)
         );
+    }
+
+    private String autotuneConfigJson(String probeHost) {
+        return """
+                {
+                  "controlInterval": "1s",
+                  "probe": {
+                    "mode": "http",
+                    "host": "%s",
+                    "port": 8080,
+                    "path": "/health",
+                    "timeout": "250ms"
+                  },
+                  "bundles": [
+                    {
+                      "name": "small",
+                      "cpuPercent": 25,
+                      "memoryHighBytes": 67108864,
+                      "memoryMaxBytes": 134217728
+                    }
+                  ],
+                  "slo": {
+                    "p95LatencyMillis": 200,
+                    "maxTimeoutRate": 0.01
+                  },
+                  "bandit": {
+                    "epsilon": 0.2,
+                    "minEpsilon": 0.05,
+                    "cooldownCycles": 3
+                  },
+                  "safety": {
+                    "consecutiveSloMisses": 3,
+                    "oomFreezeCycles": 5
+                  }
+                }
+                """.formatted(probeHost);
     }
 }

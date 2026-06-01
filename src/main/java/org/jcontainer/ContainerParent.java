@@ -237,12 +237,23 @@ public class ContainerParent {
         if (!config.networkEnabled()) {
             throw new IllegalArgumentException("Autotune requires --net for host-side probing.");
         }
-        return AutotuneConfig.load(config.autotuneConfig());
+        AutotuneConfig autotuneConfig = AutotuneConfig.load(config.autotuneConfig());
+        validateAutotuneProbeUsesNetworkManagerAddress(autotuneConfig);
+        return autotuneConfig;
     }
 
     static AutotuneLoop createAutotuneLoop(ContainerState containerState, AutotuneConfig autotuneConfig,
                                            CgroupManager cgroupManager) {
         return new AutotuneLoop(containerState, autotuneConfig, cgroupManager);
+    }
+
+    static void validateAutotuneProbeUsesNetworkManagerAddress(AutotuneConfig autotuneConfig) {
+        String probeHost = autotuneConfig.probe().host();
+        if (!NetworkManager.CONTAINER_IP.equals(probeHost)) {
+            throw new IllegalArgumentException(
+                    "Autotune probe host must match the NetworkManager container address "
+                            + NetworkManager.CONTAINER_IP + " for the default --net path.");
+        }
     }
 
     static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot) throws IOException {
