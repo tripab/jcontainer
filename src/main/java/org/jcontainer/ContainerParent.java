@@ -44,6 +44,14 @@ public class ContainerParent {
         List<String> childCmd = runtime.buildChildCommand(
                 javaPath, classpath, config.seccompPolicy(), rootfs, config.command(),
                 config.networkEnabled());
+        String seccompPolicyDigest;
+        try {
+            seccompPolicyDigest = resolveSeccompPolicyDigest(config.seccompPolicy());
+        } catch (IOException e) {
+            System.err.println("ERROR: Failed to load seccomp policy metadata: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
@@ -83,7 +91,12 @@ public class ContainerParent {
 
             // Register container for lifecycle tracking
             containerState = ContainerState.create(
-                    rootfs, config.image(), config.command(), process.pid());
+                    rootfs,
+                    config.image(),
+                    config.command(),
+                    process.pid(),
+                    config.seccompPolicy() != null ? config.seccompPolicy().toString() : null,
+                    seccompPolicyDigest);
             registry.register(containerState);
             System.err.println("Container " + containerState.id() + " started (PID " + process.pid() + ")");
 
@@ -173,5 +186,12 @@ public class ContainerParent {
 
     static String resolveClasspath() {
         return System.getProperty("java.class.path");
+    }
+
+    static String resolveSeccompPolicyDigest(Path seccompPolicy) throws IOException {
+        if (seccompPolicy == null) {
+            return null;
+        }
+        return SeccompPolicy.load(seccompPolicy).sha256Digest();
     }
 }
