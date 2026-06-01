@@ -45,6 +45,14 @@ public final class ExperimentHarness {
         );
     }
 
+    public static List<BurstLoadGenerator.Pattern> standardPatterns() {
+        return List.of(
+                BurstLoadGenerator.Pattern.STEADY,
+                BurstLoadGenerator.Pattern.SPIKE,
+                BurstLoadGenerator.Pattern.OSCILLATING
+        );
+    }
+
     private static ExperimentReport.Row toReportRow(Scenario scenario,
                                                     BurstLoadGenerator.Pattern pattern,
                                                     BurstLoadGenerator.LoadResult loadResult) {
@@ -126,8 +134,8 @@ public final class ExperimentHarness {
 
         public String toMarkdownTable() {
             StringBuilder table = new StringBuilder();
-            table.append("| Scenario | Pattern | p95 Latency | Timeout Rate | Avg CPU | Avg Memory | Pressure Events |\n");
-            table.append("|----------|---------|-------------|--------------|---------|------------|-----------------|\n");
+            table.append("| Scenario | Pattern | p95 Latency | Timeout Rate | Avg CPU | Avg Memory | Pressure Events | Time In Bundles |\n");
+            table.append("|----------|---------|-------------|--------------|---------|------------|-----------------|-----------------|\n");
             for (Row row : rows) {
                 table.append("| ")
                         .append(row.scenario())
@@ -143,6 +151,8 @@ public final class ExperimentHarness {
                         .append(formatMiB(row.averageMemoryHighBytes()))
                         .append(" | ")
                         .append(row.pressureEvents())
+                        .append(" | ")
+                        .append(formatTimeInBundles(row.timeInBundleSeconds()))
                         .append(" |\n");
             }
             return table.toString();
@@ -158,6 +168,17 @@ public final class ExperimentHarness {
 
         private static String formatMiB(double bytes) {
             return "%.1f MiB".formatted(bytes / 1024.0 / 1024.0);
+        }
+
+        private static String formatTimeInBundles(Map<String, Long> timeInBundleSeconds) {
+            StringBuilder formatted = new StringBuilder();
+            for (Map.Entry<String, Long> entry : timeInBundleSeconds.entrySet()) {
+                if (!formatted.isEmpty()) {
+                    formatted.append(", ");
+                }
+                formatted.append(entry.getKey()).append("=").append(entry.getValue()).append("s");
+            }
+            return formatted.toString();
         }
 
         public record Row(

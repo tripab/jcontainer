@@ -24,6 +24,18 @@ class ExperimentHarnessTest {
     }
 
     @Test
+    void testStandardPatternsCoverSteadySpikeAndOscillating() {
+        assertEquals(
+                List.of(
+                        BurstLoadGenerator.Pattern.STEADY,
+                        BurstLoadGenerator.Pattern.SPIKE,
+                        BurstLoadGenerator.Pattern.OSCILLATING
+                ),
+                ExperimentHarness.standardPatterns()
+        );
+    }
+
+    @Test
     void testRunExperimentProducesStableComparisonRows() throws Exception {
         try (ToyHttpService service = new ToyHttpService(0, Duration.ofMillis(5))) {
             service.start();
@@ -63,10 +75,36 @@ class ExperimentHarnessTest {
             assertEquals(0.0, autotune.timeoutRate(), 0.01);
 
             String table = report.toMarkdownTable();
-            assertTrue(table.contains("| Scenario | Pattern | p95 Latency | Timeout Rate | Avg CPU | Avg Memory | Pressure Events |"));
+            assertTrue(table.contains("| Scenario | Pattern | p95 Latency | Timeout Rate | Avg CPU | Avg Memory | Pressure Events | Time In Bundles |"));
             assertTrue(table.contains("| fixed small | STEADY |"));
             assertTrue(table.contains("| autotune | STEADY |"));
             assertTrue(table.contains("25.0%"));
+            assertTrue(table.contains("small=1s"));
+            assertTrue(table.contains("medium=1s"));
+            assertTrue(table.contains("large=1s"));
+        }
+    }
+
+    @Test
+    void testRunExperimentCoversAllStandardPatterns() throws Exception {
+        try (ToyHttpService service = new ToyHttpService(0, Duration.ZERO)) {
+            service.start();
+            ExperimentHarness harness = new ExperimentHarness();
+            ExperimentHarness.ExperimentConfig config = new ExperimentHarness.ExperimentConfig(
+                    "http://localhost:" + service.getPort() + "/",
+                    Duration.ofSeconds(2),
+                    1,
+                    1,
+                    ExperimentHarness.standardPatterns(),
+                    List.of(ExperimentHarness.Scenario.fixed("fixed medium", ExperimentHarness.MEDIUM_BUNDLE))
+            );
+
+            ExperimentHarness.ExperimentReport report = harness.runExperiment(config);
+
+            assertEquals(3, report.rows().size());
+            assertEquals(BurstLoadGenerator.Pattern.STEADY, report.rows().get(0).pattern());
+            assertEquals(BurstLoadGenerator.Pattern.SPIKE, report.rows().get(1).pattern());
+            assertEquals(BurstLoadGenerator.Pattern.OSCILLATING, report.rows().get(2).pattern());
         }
     }
 }
