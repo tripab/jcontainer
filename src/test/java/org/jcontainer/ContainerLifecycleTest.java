@@ -36,7 +36,32 @@ class ContainerLifecycleTest {
         String output = captureStdout(lifecycle::list);
         assertTrue(output.contains("ID"));
         assertTrue(output.contains("STATUS"));
+        assertTrue(output.contains("SECCOMP"));
         assertTrue(output.contains(state.id()));
+    }
+
+    @Test
+    void testListShowsSeccompAttachment() throws IOException {
+        ContainerRegistry registry = new ContainerRegistry(tempDir);
+        ContainerState withoutPolicy = ContainerState.create("/rootfs", "alpine",
+                new String[]{"/bin/sh"}, 999999999L);
+        ContainerState withPolicy = ContainerState.create(
+                "/rootfs",
+                "alpine-seccomp",
+                new String[]{"/bin/sh"},
+                999999998L,
+                "/tmp/policy.json",
+                "sha256:abc123");
+        registry.register(withoutPolicy);
+        registry.register(withPolicy);
+
+        ContainerLifecycle lifecycle = new ContainerLifecycle(registry);
+        String output = captureStdout(lifecycle::list);
+
+        assertTrue(output.lines().anyMatch(line ->
+                line.contains("alpine-seccomp") && line.contains("yes")));
+        assertTrue(output.lines().anyMatch(line ->
+                line.contains("alpine") && !line.contains("alpine-seccomp") && line.contains("-")));
     }
 
     @Test
