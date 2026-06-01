@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -46,5 +47,16 @@ class ContainerParentTest {
         policy.save(policyPath);
 
         assertEquals(policy.sha256Digest(), ContainerParent.resolveSeccompPolicyDigest(policyPath));
+    }
+
+    @Test
+    void testResolveSeccompPolicyDigestReportsInvalidJson() throws IOException {
+        Path policyPath = tempDir.resolve("invalid.json");
+        Files.writeString(policyPath, "{not-json");
+
+        IOException error = assertThrows(IOException.class,
+                () -> ContainerParent.resolveSeccompPolicyDigest(policyPath));
+
+        assertTrue(error.getMessage().startsWith("Invalid seccomp policy " + policyPath + ": "));
     }
 }

@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -43,7 +44,9 @@ class SeccompManagerTest {
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> manager.install(policy(List.of("read"))));
 
-        assertEquals("prctl(PR_SET_NO_NEW_PRIVS) failed with rc=22", error.getMessage());
+        assertEquals(
+                "prctl(PR_SET_NO_NEW_PRIVS) failed with rc=22; verify the host supports seccomp filters and no_new_privs can be set",
+                error.getMessage());
         assertEquals(1, prctl.calls.size());
         assertEquals(LinuxConstants.PR_SET_NO_NEW_PRIVS, prctl.calls.getFirst().option());
     }
@@ -56,7 +59,9 @@ class SeccompManagerTest {
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> manager.install(policy(List.of("read"))));
 
-        assertEquals("prctl(PR_SET_SECCOMP) failed with rc=13", error.getMessage());
+        assertEquals(
+                "prctl(PR_SET_SECCOMP) failed with rc=13; verify the host supports seccomp filters and no_new_privs can be set",
+                error.getMessage());
         assertEquals(2, prctl.calls.size());
     }
 
@@ -80,7 +85,34 @@ class SeccompManagerTest {
         RuntimeException error = assertThrows(RuntimeException.class,
                 () -> manager.install(policyPath));
 
-        assertEquals("Failed to load seccomp policy: " + policyPath, error.getMessage());
+        assertTrue(error.getMessage().startsWith("Failed to read seccomp policy " + policyPath + ": "));
+    }
+
+    @Test
+    void testInstallPathReportsInvalidJson() throws Exception {
+        SeccompManager manager = manager(new RecordingPrctl(0, 0));
+        Path policyPath = tempDir.resolve("invalid.json");
+        Files.writeString(policyPath, "{not-json");
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> manager.install(policyPath));
+
+        assertTrue(error.getMessage().startsWith("Invalid seccomp policy " + policyPath + ": "));
+    }
+
+    @Test
+    void testInstallPathReportsPolicyValidationFailure() throws Exception {
+        SeccompManager manager = manager(new RecordingPrctl(0, 0));
+        Path policyPath = tempDir.resolve("policy.json");
+        policy(List.of("not_a_real_syscall")).save(policyPath);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> manager.install(policyPath));
+
+        assertEquals(
+                "Invalid seccomp policy " + policyPath
+                        + ": Unknown syscall in seccomp policy for linux-x86_64: not_a_real_syscall",
+                error.getMessage());
     }
 
     private static SeccompManager manager(RecordingPrctl prctl) {

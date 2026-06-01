@@ -41,7 +41,8 @@ public class ProfilePreflight {
             throw new IllegalStateException("Profile command is only supported on Linux");
         }
         if (!commandAvailable.test("strace")) {
-            throw new IllegalStateException("Profile command requires strace on the host PATH");
+            throw new IllegalStateException(
+                    "Profile command requires strace on the host PATH; install strace and retry");
         }
 
         ProfileWorkspace workspace = workspaceManager.create();

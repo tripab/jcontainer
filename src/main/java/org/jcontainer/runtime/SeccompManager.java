@@ -33,10 +33,21 @@ public final class SeccompManager {
 
     public void install(Path policyPath) {
         Objects.requireNonNull(policyPath, "policyPath");
+        SeccompPolicy policy;
         try {
-            install(SeccompPolicy.load(policyPath));
+            policy = SeccompPolicy.load(policyPath);
         } catch (IOException e) {
-            throw new RuntimeException("Failed to load seccomp policy: " + policyPath, e);
+            throw new IllegalStateException("Failed to read seccomp policy " + policyPath + ": " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Invalid seccomp policy " + policyPath + ": " + rootMessage(e), e);
+        }
+
+        try {
+            install(policy);
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            throw new IllegalStateException("Invalid seccomp policy " + policyPath + ": " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Failed to install seccomp policy " + policyPath + ": " + e.getMessage(), e);
         }
     }
 
@@ -60,8 +71,18 @@ public final class SeccompManager {
 
     private static void check(int rc, String operation) {
         if (rc != 0) {
-            throw new RuntimeException(operation + " failed with rc=" + rc);
+            throw new RuntimeException(operation + " failed with rc=" + rc
+                    + "; verify the host supports seccomp filters and no_new_privs can be set");
         }
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message != null ? message : current.getClass().getSimpleName();
     }
 
     @FunctionalInterface

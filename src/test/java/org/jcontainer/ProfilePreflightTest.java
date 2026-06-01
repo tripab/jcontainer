@@ -42,7 +42,7 @@ class ProfilePreflightTest {
 
         IllegalStateException error = assertThrows(IllegalStateException.class, preflight::prepare);
 
-        assertEquals("Profile command requires strace on the host PATH", error.getMessage());
+        assertEquals("Profile command requires strace on the host PATH; install strace and retry", error.getMessage());
     }
 
     @Test

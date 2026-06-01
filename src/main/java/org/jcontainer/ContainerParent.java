@@ -48,7 +48,7 @@ public class ContainerParent {
         try {
             seccompPolicyDigest = resolveSeccompPolicyDigest(config.seccompPolicy());
         } catch (IOException e) {
-            System.err.println("ERROR: Failed to load seccomp policy metadata: " + e.getMessage());
+            System.err.println("ERROR: " + e.getMessage());
             System.exit(1);
             return;
         }
@@ -134,6 +134,10 @@ public class ContainerParent {
 
             // Update container state
             registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, exitCode);
+            if (exitCode != 0 && config.seccompPolicy() != null) {
+                System.err.println("Seccomp policy was attached. If stderr shows EPERM or Operation not permitted, "
+                        + "regenerate the policy with profile --append for this workload.");
+            }
 
             System.exit(exitCode);
         } catch (IOException | InterruptedException e) {
@@ -192,6 +196,19 @@ public class ContainerParent {
         if (seccompPolicy == null) {
             return null;
         }
-        return SeccompPolicy.load(seccompPolicy).sha256Digest();
+        try {
+            return SeccompPolicy.load(seccompPolicy).sha256Digest();
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid seccomp policy " + seccompPolicy + ": " + rootMessage(e), e);
+        }
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message != null ? message : current.getClass().getSimpleName();
     }
 }
