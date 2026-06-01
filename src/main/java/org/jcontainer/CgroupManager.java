@@ -103,6 +103,14 @@ public class CgroupManager implements AutoCloseable {
     }
 
     /**
+     * Apply an emergency bundle, including the live hard memory cap.
+     */
+    public void applyEmergencyBundle(ResourceBundle bundle) throws IOException {
+        applyBundle(bundle);
+        setMemoryLimit(bundle.memoryMaxBytes());
+    }
+
+    /**
      * Add a process to this cgroup.
      */
     public void addProcess(long pid) throws IOException {

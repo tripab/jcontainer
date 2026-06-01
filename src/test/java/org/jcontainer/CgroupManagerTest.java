@@ -112,6 +112,19 @@ class CgroupManagerTest {
     }
 
     @Test
+    void testApplyEmergencyBundleUpdatesHardMemoryLimit() throws IOException {
+        CgroupManager mgr = createManager("test05-emergency");
+        mgr.create();
+        ResourceBundle bundle = new ResourceBundle("large", 100, 268435456L, 536870912L);
+
+        mgr.applyEmergencyBundle(bundle);
+
+        assertEquals("100000 100000\n", Files.readString(mgr.getCgroupPath().resolve("cpu.max")));
+        assertEquals("268435456\n", Files.readString(mgr.getCgroupPath().resolve("memory.high")));
+        assertEquals("536870912\n", Files.readString(mgr.getCgroupPath().resolve("memory.max")));
+    }
+
+    @Test
     void testAddProcess() throws IOException {
         CgroupManager mgr = createManager("test06");
         mgr.create();

@@ -150,6 +150,8 @@ class AutotuneLoopTest {
             assertNotNull(loop.safeFallbackBundle());
             assertEquals("large", loop.safeFallbackBundle().name());
             assertTrue(loop.lastProbeObservation().requiresSafeFallback());
+            assertFalse(loop.lastEmergencyHardLimitApplied());
+            assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
         }
     }
 
@@ -212,6 +214,7 @@ class AutotuneLoopTest {
             assertEquals("small", logEntry.action().selectedBundle());
             assertEquals(0.42, logEntry.reward());
             assertFalse(logEntry.safety().overrideApplied());
+            assertFalse(logEntry.safety().emergencyHardLimitApplied());
             assertFalse(logEntry.exploration().blocked());
             assertEquals(1048576L, logEntry.observation().memoryCurrentBytes());
             JsonObject json = JsonParser.parseString(AutotuneDecisionLogger.GSON.toJson(logEntry)).getAsJsonObject();
@@ -269,9 +272,10 @@ class AutotuneLoopTest {
             assertEquals(loop.lastSafetyOverrideBundle(), loop.lastSelectedBundle());
             assertEquals(loop.lastSelectedBundle(), loop.currentBundle());
             assertTrue(loop.isExplorationBlocked());
+            assertTrue(loop.lastEmergencyHardLimitApplied());
             assertEquals("100000 100000\n", Files.readString(cgroupManager.getCgroupPath().resolve("cpu.max")));
             assertEquals("268435456\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.high")));
-            assertFalse(Files.exists(cgroupManager.getCgroupPath().resolve("memory.max")));
+            assertEquals("536870912\n", Files.readString(cgroupManager.getCgroupPath().resolve("memory.max")));
             assertEquals(1, decisionLogs.size());
             AutotuneDecisionLogEntry logEntry = decisionLogs.get(0);
             assertEquals("safety_override", logEntry.action().source());
@@ -279,6 +283,7 @@ class AutotuneLoopTest {
             assertNull(logEntry.reward());
             assertTrue(logEntry.safety().overrideApplied());
             assertEquals("large", logEntry.safety().overrideBundle());
+            assertTrue(logEntry.safety().emergencyHardLimitApplied());
             assertTrue(logEntry.exploration().blocked());
             assertTrue(logEntry.exploration().safetyFrozen());
             assertEquals(1.0, logEntry.observation().memoryPressureFullPct());

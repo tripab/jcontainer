@@ -35,6 +35,7 @@ class SafetyGuardTest {
 
         assertEquals(Optional.of(medium), override);
         assertFalse(guard.isExplorationFrozen());
+        assertFalse(guard.isEmergencyOverrideActive());
     }
 
     @Test
@@ -51,12 +52,14 @@ class SafetyGuardTest {
                 telemetry(small, 96, 0, 1, 0.0),
                 probe(true, 5, 0, 0, 80)
         ));
+        assertTrue(guard.isEmergencyOverrideActive());
         Optional<ResourceBundle> held = guard.override(context(
                 medium,
                 bundles,
                 telemetry(medium, 96, 0, 0, 0.0),
                 probe(true, 5, 0, 0, 80)
         ));
+        assertTrue(guard.isEmergencyOverrideActive());
         Optional<ResourceBundle> cleared = guard.override(context(
                 large,
                 bundles,
@@ -68,6 +71,7 @@ class SafetyGuardTest {
         assertEquals(Optional.of(large), held);
         assertTrue(cleared.isEmpty());
         assertFalse(guard.isExplorationFrozen());
+        assertFalse(guard.isEmergencyOverrideActive());
     }
 
     @Test
@@ -84,6 +88,7 @@ class SafetyGuardTest {
 
         assertTrue(override.isEmpty());
         assertTrue(guard.isExplorationFrozen());
+        assertFalse(guard.isEmergencyOverrideActive());
     }
 
     @Test
@@ -110,6 +115,7 @@ class SafetyGuardTest {
 
         assertEquals(Optional.of(medium), override);
         assertTrue(guard.isExplorationFrozen());
+        assertFalse(guard.isEmergencyOverrideActive());
     }
 
     private ResourceBundle bundle(String name, int cpuPercent, long memoryHighMb, long memoryMaxMb) {

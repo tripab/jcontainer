@@ -48,6 +48,7 @@ public record AutotuneDecisionLogEntry(
                                          ResourceBundle safetyOverrideBundle,
                                          boolean explorationBlocked,
                                          boolean safetyExplorationFrozen,
+                                         boolean emergencyHardLimitApplied,
                                          ResourceBundle safeFallbackBundle) {
         if (containerState == null) {
             throw new IllegalArgumentException("Container state is required");
@@ -102,7 +103,8 @@ public record AutotuneDecisionLogEntry(
                 outcome != null ? outcome.rationale() : "Safety override selected bundle",
                 new Safety(
                         safetyOverrideApplied,
-                        safetyOverrideApplied ? safetyOverrideBundle.name() : null
+                        safetyOverrideApplied ? safetyOverrideBundle.name() : null,
+                        emergencyHardLimitApplied
                 ),
                 new Exploration(
                         explorationBlocked,
@@ -156,7 +158,8 @@ public record AutotuneDecisionLogEntry(
 
     public record Safety(
             boolean overrideApplied,
-            String overrideBundle
+            String overrideBundle,
+            boolean emergencyHardLimitApplied
     ) {
     }
 

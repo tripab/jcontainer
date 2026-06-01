@@ -13,6 +13,7 @@ public final class SafetyGuard {
     private int consecutiveLatencyMisses;
     private int emergencyFreezeCyclesRemaining;
     private boolean explorationFrozen;
+    private boolean emergencyOverrideActive;
     private ResourceBundle lastKnownSafeBundle;
 
     public SafetyGuard(AutotuneConfig.SafetySpec safetySpec, AutotuneConfig.SloTarget sloTarget) {
@@ -36,6 +37,7 @@ public final class SafetyGuard {
         boolean timeoutExceeded = timeoutExceeded(context);
         boolean latencyMiss = latencyMiss(context);
         boolean emergencyFreezeActive = emergencyFreezeCyclesRemaining > 0;
+        emergencyOverrideActive = severeMemoryPressure || emergencyFreezeActive;
 
         updateConsecutiveLatencyMisses(latencyMiss);
         updateLastKnownSafeBundle(context, severeMemoryPressure, probeFailedEntirely, timeoutExceeded, latencyMiss);
@@ -59,6 +61,10 @@ public final class SafetyGuard {
 
     boolean isExplorationFrozen() {
         return explorationFrozen;
+    }
+
+    boolean isEmergencyOverrideActive() {
+        return emergencyOverrideActive;
     }
 
     private void updateConsecutiveLatencyMisses(boolean latencyMiss) {

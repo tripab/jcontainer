@@ -31,6 +31,7 @@ public final class AutotuneLoop implements AutoCloseable {
     private ResourceBundle lastSelectedBundle;
     private ResourceBundle lastSafetyOverrideBundle;
     private AutotuneDecisionLogEntry lastDecisionLogEntry;
+    private boolean lastEmergencyHardLimitApplied;
 
     public AutotuneLoop(ContainerState containerState, AutotuneConfig config, CgroupManager cgroupManager) {
         this(containerState, config, cgroupManager,
@@ -134,7 +135,12 @@ public final class AutotuneLoop implements AutoCloseable {
             }
             lastSelectedBundle = lastDecisionOutcome.selectedBundle();
         }
-        cgroupManager.applyBundle(lastSelectedBundle);
+        lastEmergencyHardLimitApplied = safetyGuard.isEmergencyOverrideActive();
+        if (lastEmergencyHardLimitApplied) {
+            cgroupManager.applyEmergencyBundle(lastSelectedBundle);
+        } else {
+            cgroupManager.applyBundle(lastSelectedBundle);
+        }
         lastDecisionLogEntry = AutotuneDecisionLogEntry.from(
                 containerState,
                 lastDecisionContext,
@@ -143,6 +149,7 @@ public final class AutotuneLoop implements AutoCloseable {
                 lastSafetyOverrideBundle,
                 explorationBlocked,
                 safetyGuard.isExplorationFrozen(),
+                lastEmergencyHardLimitApplied,
                 safeFallbackBundle
         );
         decisionLogger.log(lastDecisionLogEntry);
@@ -187,6 +194,10 @@ public final class AutotuneLoop implements AutoCloseable {
 
     AutotuneDecisionLogEntry lastDecisionLogEntry() {
         return lastDecisionLogEntry;
+    }
+
+    boolean lastEmergencyHardLimitApplied() {
+        return lastEmergencyHardLimitApplied;
     }
 
     ResourceBundle safeFallbackBundle() {
