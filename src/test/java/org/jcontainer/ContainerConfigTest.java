@@ -196,6 +196,20 @@ class ContainerConfigTest {
     }
 
     @Test
+    void testParseWithSeccompPolicyAndOtherRootfsModeFlags() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--memory", "64m", "--seccomp-policy", "policy.json",
+                        "--cpu", "25", "/rootfs", "/bin/sh"});
+
+        assertTrue(config.networkEnabled());
+        assertEquals(64L * 1024 * 1024, config.memoryBytes());
+        assertEquals(25, config.cpuPercent());
+        assertEquals(Path.of("policy.json"), config.seccompPolicy());
+        assertEquals("/rootfs", config.rootfs());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
     void testParseSeccompPolicyMissingValueThrows() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
                 () -> ContainerConfig.parse(new String[]{"run", "--seccomp-policy"}));

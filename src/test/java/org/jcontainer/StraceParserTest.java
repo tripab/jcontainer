@@ -57,6 +57,22 @@ class StraceParserTest {
     }
 
     @Test
+    void testParseUsesLastSuccessfulPayloadExecveAsRootBoundary() throws IOException {
+        Path traceBase = tempDir.resolve("trace");
+        Files.writeString(traceBase.resolveSibling("trace.302"), """
+                execve("/usr/bin/java", ["/usr/bin/java"], 0x0 /* 0 vars */) = 0
+                brk(NULL) = 0x1234
+                execve("/bin/echo", ["/bin/echo", "hello"], 0x0 /* 0 vars */) = 0
+                read(3, "abc", 3) = 3
+                write(1, "hello\\n", 6) = 6
+                """);
+
+        Set<String> syscalls = parser.parseProfile(traceBase);
+
+        assertEquals(Set.of("read", "write"), syscalls);
+    }
+
+    @Test
     void testParseUnionsDescendantTraceFiles() throws IOException {
         Path traceBase = tempDir.resolve("trace");
         Files.writeString(traceBase.resolveSibling("trace.410"), """

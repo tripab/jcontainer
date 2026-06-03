@@ -10,9 +10,11 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -81,6 +83,35 @@ class SeccompFilterBuilderTest {
                         LinuxConstants.SECCOMP_RET_ERRNO | SeccompFilterBuilder.EPERM_ERRNO),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0, LinuxConstants.SECCOMP_RET_ALLOW)
         ), program.instructions());
+    }
+
+    @Test
+    void testBuildIncludesEveryPolicySyscallAsAllowComparison() {
+        LinuxSyscallTable table = LinuxSyscallTable.loadForArchitecture("linux-x86_64");
+        SeccompProgram program = builder.build(
+                new SeccompPolicy(
+                        1,
+                        "linux-x86_64",
+                        "2026-06-01T00:00:00Z",
+                        List.of("/bin/echo", "hello"),
+                        "errno:EPERM",
+                        List.of("close", "exit_group", "read", "write")
+                ),
+                table);
+
+        Set<Long> comparisonValues = program.instructions().stream()
+                .filter(instruction -> instruction.code() == SeccompFilterBuilder.BPF_JMP_JEQ_K)
+                .map(SeccompProgram.Instruction::k)
+                .collect(Collectors.toSet());
+
+        assertEquals(Set.of(
+                Integer.toUnsignedLong(LinuxConstants.AUDIT_ARCH_X86_64),
+                Integer.toUnsignedLong(table.numberForName("close")),
+                Integer.toUnsignedLong(table.numberForName("execve")),
+                Integer.toUnsignedLong(table.numberForName("exit_group")),
+                Integer.toUnsignedLong(table.numberForName("read")),
+                Integer.toUnsignedLong(table.numberForName("write"))
+        ), comparisonValues);
     }
 
     @Test
