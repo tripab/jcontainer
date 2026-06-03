@@ -60,6 +60,9 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
+        if (seccompPolicy != null) {
+            throw new UnsupportedOperationException("Seccomp policies are only supported on Linux");
+        }
         exec(executable);
     }
 
