@@ -88,6 +88,27 @@ class ContainerRegistryTest {
     }
 
     @Test
+    void testUpdateStatusPreservesSeccompMetadataOnDisk() throws IOException {
+        ContainerRegistry registry = new ContainerRegistry(tempDir);
+        ContainerState state = ContainerState.create(
+                "/rootfs",
+                "alpine",
+                new String[]{"/bin/sh"},
+                12345,
+                "/tmp/echo-policy.json",
+                "sha256:abc123");
+        registry.register(state);
+
+        registry.updateStatus(state.id(), ContainerState.STATUS_EXITED, 1);
+
+        ContainerState updated = ContainerState.load(registry.getContainerDir(state.id()));
+        assertEquals(ContainerState.STATUS_EXITED, updated.status());
+        assertEquals(1, updated.exitCode());
+        assertEquals("/tmp/echo-policy.json", updated.seccompPolicyPath());
+        assertEquals("sha256:abc123", updated.seccompPolicyDigest());
+    }
+
+    @Test
     void testRemoveDeletesDirectory() throws IOException {
         ContainerRegistry registry = new ContainerRegistry(tempDir);
         ContainerState state = ContainerState.create("/rootfs", "alpine",

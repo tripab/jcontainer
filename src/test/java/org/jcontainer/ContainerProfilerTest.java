@@ -39,6 +39,28 @@ class ContainerProfilerTest {
     }
 
     @Test
+    void testRepeatedProfileGenerationProducesStableSerializedPolicy() throws IOException {
+        ContainerProfiler profiler = new ContainerProfiler(
+                unusedPreflight(),
+                () -> "2026-05-29T00:00:00Z",
+                () -> LinuxSyscallTable.loadForArchitecture("linux-x86_64")
+        );
+        ProfileConfig config = new ProfileConfig(
+                "/rootfs",
+                new String[]{"/bin/echo", "hello"},
+                null,
+                tempDir.resolve("policy.json"),
+                false
+        );
+
+        SeccompPolicy first = profiler.profile(config, List.of("write", "read", "close", "read"));
+        SeccompPolicy second = profiler.profile(config, List.of("close", "write", "read", "write"));
+
+        assertEquals(first.toJson(), second.toJson());
+        assertEquals(first.sha256Digest(), second.sha256Digest());
+    }
+
+    @Test
     void testProfileAppendMergesExistingPolicyDeterministically() throws IOException {
         Path output = tempDir.resolve("policy.json");
         new SeccompPolicy(
@@ -67,6 +89,55 @@ class ContainerProfilerTest {
 
         assertEquals(List.of("brk", "read", "write"), policy.syscalls());
         assertEquals("2026-05-29T00:00:00Z", policy.generatedAt());
+    }
+
+    @Test
+    void testProfileAppendUnionIsStableAcrossExistingAndObservedOrder() throws IOException {
+        Path firstOutput = tempDir.resolve("first-policy.json");
+        Path secondOutput = tempDir.resolve("second-policy.json");
+        new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-05-28T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("write", "brk", "write")
+        ).save(firstOutput);
+        new SeccompPolicy(
+                1,
+                "linux-x86_64",
+                "2026-05-28T00:00:00Z",
+                List.of("/bin/echo", "hello"),
+                "errno:EPERM",
+                List.of("brk", "write")
+        ).save(secondOutput);
+
+        ContainerProfiler profiler = new ContainerProfiler(
+                unusedPreflight(),
+                () -> "2026-05-29T00:00:00Z",
+                () -> LinuxSyscallTable.loadForArchitecture("linux-x86_64")
+        );
+        ProfileConfig firstConfig = new ProfileConfig(
+                "/rootfs",
+                new String[]{"/bin/echo", "hello"},
+                null,
+                firstOutput,
+                true
+        );
+        ProfileConfig secondConfig = new ProfileConfig(
+                "/rootfs",
+                new String[]{"/bin/echo", "hello"},
+                null,
+                secondOutput,
+                true
+        );
+
+        SeccompPolicy first = profiler.profile(firstConfig, List.of("read", "close", "read"));
+        SeccompPolicy second = profiler.profile(secondConfig, List.of("close", "read"));
+
+        assertEquals(List.of("brk", "close", "read", "write"), first.syscalls());
+        assertEquals(first.toJson(), second.toJson());
+        assertEquals(first.sha256Digest(), second.sha256Digest());
     }
 
     @Test
