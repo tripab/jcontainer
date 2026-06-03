@@ -146,7 +146,7 @@ class ContainerIntegrationTest {
         requireRootfs("rootfs/ directory not found.");
         LinuxSyscallTable syscallTable = LinuxSyscallTable.loadForCurrentArch();
         Path hostPolicy = Path.of(".context", "integration-deny-policy.json");
-        Path rootfsPolicy = Path.of(ROOTFS).resolve(hostPolicy);
+        Path rootfsPolicy = rootfsMirror(hostPolicy);
         SeccompPolicy policy = new SeccompPolicy(
                 SeccompPolicy.SUPPORTED_VERSION,
                 syscallTable.architecture(),
@@ -169,6 +169,55 @@ class ContainerIntegrationTest {
                             || result.stderr().contains("Operation not permitted")
                             || result.stderr().contains("EPERM"),
                     "stderr should explain seccomp denial context. stderr: " + result.stderr());
+        } finally {
+            Files.deleteIfExists(rootfsPolicy);
+            Files.deleteIfExists(hostPolicy);
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void testLinuxProfileGeneratesEchoPolicy() throws Exception {
+        requireRootfs("rootfs/ directory not found.");
+        LinuxSyscallTable syscallTable = LinuxSyscallTable.loadForCurrentArch();
+        Path policyPath = Path.of(".context", "integration-echo-profile-policy.json");
+
+        try {
+            ProcessResult result = runJContainer(
+                    "profile", "--output", policyPath.toString(), ROOTFS, "/bin/echo", "hello");
+
+            assertEquals(0, result.exitCode(), "profile should succeed. stderr: " + result.stderr());
+            assertTrue(Files.exists(policyPath), "profile should write the requested policy file");
+            SeccompPolicy policy = SeccompPolicy.load(policyPath).validate(syscallTable);
+            assertEquals(List.of("/bin/echo", "hello"), policy.command());
+            assertFalse(policy.syscalls().isEmpty(), "profile should record payload syscalls");
+            assertTrue(result.stderr().contains("Profile report:"),
+                    "profile should print a report. stderr: " + result.stderr());
+            assertTrue(result.stderr().contains("Policy written: " + policyPath),
+                    "profile should print the output path. stderr: " + result.stderr());
+        } finally {
+            Files.deleteIfExists(policyPath);
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void testLinuxRunWithGeneratedSeccompPolicySucceedsForSameWorkload() throws Exception {
+        requireRootfs("rootfs/ directory not found.");
+        Path hostPolicy = Path.of(".context", "integration-echo-run-policy.json");
+        Path rootfsPolicy = rootfsMirror(hostPolicy);
+
+        try {
+            ProcessResult profile = runJContainer(
+                    "profile", "--output", hostPolicy.toString(), ROOTFS, "/bin/echo", "hello");
+            assertEquals(0, profile.exitCode(), "profile should succeed. stderr: " + profile.stderr());
+            SeccompPolicy.load(hostPolicy).save(rootfsPolicy);
+
+            ProcessResult run = runJContainer(
+                    "run", "--seccomp-policy", hostPolicy.toString(), ROOTFS, "/bin/echo", "hello");
+
+            assertEquals(0, run.exitCode(), "generated policy should allow matching workload. stderr: " + run.stderr());
+            assertEquals("hello", run.stdout().trim());
         } finally {
             Files.deleteIfExists(rootfsPolicy);
             Files.deleteIfExists(hostPolicy);
@@ -215,6 +264,10 @@ class ContainerIntegrationTest {
         if (!Files.isDirectory(Path.of(ROOTFS))) {
             fail(message);
         }
+    }
+
+    private static Path rootfsMirror(Path hostPath) {
+        return Path.of(ROOTFS).resolve(hostPath);
     }
 
     record ProcessResult(int exitCode, String stdout, String stderr) {}
