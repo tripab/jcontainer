@@ -225,6 +225,34 @@ class ContainerIntegrationTest {
     }
 
     @Test
+    @EnabledOnOs(OS.LINUX)
+    void testLinuxGeneratedPolicyRejectsIncompatibleWorkload() throws Exception {
+        requireRootfs("rootfs/ directory not found.");
+        Path hostPolicy = Path.of(".context", "integration-true-policy.json");
+        Path rootfsPolicy = rootfsMirror(hostPolicy);
+
+        try {
+            ProcessResult profile = runJContainer(
+                    "profile", "--output", hostPolicy.toString(), ROOTFS, "/bin/true");
+            assertEquals(0, profile.exitCode(), "profile should succeed. stderr: " + profile.stderr());
+            SeccompPolicy.load(hostPolicy).save(rootfsPolicy);
+
+            ProcessResult run = runJContainer(
+                    "run", "--seccomp-policy", hostPolicy.toString(), ROOTFS, "/bin/echo", "hello");
+
+            assertNotEquals(0, run.exitCode(),
+                    "policy generated for /bin/true should reject /bin/echo. stderr: " + run.stderr());
+            assertTrue(run.stderr().contains("Seccomp policy was attached")
+                            || run.stderr().contains("Operation not permitted")
+                            || run.stderr().contains("EPERM"),
+                    "stderr should explain seccomp denial context. stderr: " + run.stderr());
+        } finally {
+            Files.deleteIfExists(rootfsPolicy);
+            Files.deleteIfExists(hostPolicy);
+        }
+    }
+
+    @Test
     @EnabledOnOs(OS.MAC)
     void testMacOSRunWithSeccompPolicyFailsUnsupported() throws Exception {
         requireRootfs("rootfs/ directory not found.");
