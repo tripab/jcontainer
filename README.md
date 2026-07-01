@@ -140,6 +140,29 @@ mvn test                    # Unit tests
 mvn verify -Pintegration    # Integration tests (requires rootfs + root)
 ```
 
+### Track B Baseline Capture (Linux)
+
+The AI resource tuning baseline capture is automated for Linux/cgroup v2 hosts:
+
+```bash
+sudo scripts/capture-baselines.sh
+```
+
+The script builds the jar, creates `rootfs/` if needed, launches fixed `small`, `medium`, and `large` containers, drives `steady`, `spike`, and `oscillating` HTTP load against `10.0.0.2:8080`, samples cgroup files, and writes request traces plus reports under `baseline-runs/<timestamp>/`.
+
+Useful shorter smoke run:
+
+```bash
+sudo scripts/capture-baselines.sh --duration-seconds 10 --base-rps 2 --patterns spike
+```
+
+Key outputs:
+
+- `summary.md` — Markdown comparison table
+- `summary.json` — machine-readable aggregate report
+- `<bundle>-<pattern>/probe-trace.jsonl` — per-request probe trace
+- `<bundle>-<pattern>/cgroup-samples.jsonl` — sampled cgroup telemetry/control files
+
 ---
 
 ## Testing
