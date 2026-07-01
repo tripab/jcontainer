@@ -50,4 +50,12 @@ class JContainerTest {
             assertEquals("Profile command is only supported on Linux", error.getMessage());
         }
     }
+
+    @Test
+    void testUsageTextIncludesAutotuneConfigFlag() {
+        String usage = JContainer.usageText();
+
+        assertTrue(usage.contains("--autotune-config FILE"));
+        assertTrue(usage.contains("java org.jcontainer.JContainer run"));
+    }
 }

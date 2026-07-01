@@ -10,7 +10,8 @@ import java.io.IOException;
  * JContainer — a basic container runtime in Java.
  *
  * Usage:
- *   java JContainer run [--image IMAGE] [--seccomp-policy FILE] [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]
+ *   java JContainer run [--image IMAGE] [--seccomp-policy FILE] [--net] [--memory SIZE] [--cpu PERCENT]
+ *        [--autotune-config FILE]  <rootfs> <command> [args...]
  *   java JContainer profile [--image IMAGE] --output FILE [--append] <rootfs> <command> [args...]
  *   java JContainer list
  *   java JContainer stop <container-id>
@@ -120,7 +121,8 @@ public class JContainer {
     static String usageText() {
         return """
                 Usage:
-                  java org.jcontainer.JContainer run [--image IMAGE] [--seccomp-policy FILE] [--net] [--memory SIZE] [--cpu PERCENT] <rootfs> <command> [args...]
+                  java org.jcontainer.JContainer run [--image IMAGE] [--seccomp-policy FILE] [--net] [--memory SIZE] [--cpu PERCENT]
+                       [--autotune-config FILE] <rootfs> <command> [args...]
                   java org.jcontainer.JContainer profile [--image IMAGE] --output FILE [--append] <rootfs> <command> [args...]
                   java org.jcontainer.JContainer list
                   java org.jcontainer.JContainer stop <container-id>

@@ -9,13 +9,13 @@ import java.util.List;
  * Parsed container configuration from command-line arguments.
  * Handles optional flags before the positional rootfs and command args.
  *
- * Usage: run [--image IMAGE] [--seccomp-policy FILE] [--net] [--memory SIZE] [--cpu PERCENT] [rootfs] command [args...]
+ * Usage: run [--image IMAGE] [--seccomp-policy FILE] [--autotune-config FILE] [--net] [--memory SIZE] [--cpu PERCENT] [rootfs] command [args...]
  *
  * When --image is provided, rootfs is optional (image is extracted to cache).
  * When --image is absent, rootfs is required.
  */
 public record ContainerConfig(String rootfs, String[] command, Long memoryBytes, Integer cpuPercent,
-                               boolean networkEnabled, String image, Path seccompPolicy) {
+                               boolean networkEnabled, String image, Path seccompPolicy, Path autotuneConfig) {
 
     /**
      * Parse args after the mode (e.g., after "run" has been consumed).
@@ -27,6 +27,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
         boolean net = false;
         String image = null;
         Path seccompPolicy = null;
+        Path autotuneConfig = null;
         List<String> positional = new ArrayList<>();
 
         int i = 1; // skip mode
@@ -60,6 +61,12 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
                     }
                     seccompPolicy = Path.of(args[++i]);
                 }
+                case "--autotune-config" -> {
+                    if (i + 1 >= args.length) {
+                        throw new IllegalArgumentException("--autotune-config requires a value");
+                    }
+                    autotuneConfig = Path.of(args[++i]);
+                }
                 default -> {
                     // Once we hit a non-flag arg, everything remaining is positional
                     positional.addAll(Arrays.asList(args).subList(i, args.length));
@@ -91,7 +98,7 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
             command = positional.subList(1, positional.size()).toArray(String[]::new);
         }
 
-        return new ContainerConfig(rootfs, command, memory, cpu, net, image, seccompPolicy);
+        return new ContainerConfig(rootfs, command, memory, cpu, net, image, seccompPolicy, autotuneConfig);
     }
 
     public boolean hasResourceLimits() {
@@ -100,6 +107,10 @@ public record ContainerConfig(String rootfs, String[] command, Long memoryBytes,
 
     public boolean hasImage() {
         return image != null;
+    }
+
+    public boolean hasAutotuneConfig() {
+        return autotuneConfig != null;
     }
 
     /**

@@ -20,6 +20,7 @@ public record ContainerState(
         String rootfs,
         String image,
         String[] command,
+        String autotuneConfigPath,
         String status,
         Integer exitCode,
         String seccompPolicyPath,
@@ -52,10 +53,31 @@ public record ContainerState(
                 rootfs,
                 image,
                 command,
+                null,
                 STATUS_RUNNING,
                 null,
                 seccompPolicyPath,
                 seccompPolicyDigest
+        );
+    }
+
+    /**
+     * Create a container state before the child process is started.
+     * The PID is filled in later once the process exists.
+     */
+    public static ContainerState createPending(String rootfs, String image, String[] command) {
+        return new ContainerState(
+                generateId(),
+                -1,
+                Instant.now().toString(),
+                rootfs,
+                image,
+                command,
+                null,
+                STATUS_RUNNING,
+                null,
+                null,
+                null
         );
     }
 
@@ -70,10 +92,31 @@ public record ContainerState(
                 rootfs,
                 image,
                 command,
+                autotuneConfigPath,
                 newStatus,
                 newExitCode,
                 seccompPolicyPath,
-                seccompPolicyDigest);
+                seccompPolicyDigest
+        );
+    }
+
+    /**
+     * Return a new ContainerState with the runtime child PID populated.
+     */
+    public ContainerState withPid(long newPid) {
+        if (newPid <= 0) {
+            throw new IllegalArgumentException("Container PID must be positive");
+        }
+        return new ContainerState(id, newPid, startTime, rootfs, image, command,
+                autotuneConfigPath, status, exitCode, null, null);
+    }
+
+    /**
+     * Return a new ContainerState with the autotune config path captured for later inspection.
+     */
+    public ContainerState withAutotuneConfig(Path configPath) {
+        return new ContainerState(id, pid, startTime, rootfs, image, command,
+                configPath != null ? configPath.toString() : null, status, exitCode, null, null);
     }
 
     /**

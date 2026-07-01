@@ -19,6 +19,7 @@ class ContainerConfigTest {
         assertFalse(config.hasResourceLimits());
         assertFalse(config.networkEnabled());
         assertNull(config.seccompPolicy());
+        assertFalse(config.hasAutotuneConfig());
     }
 
     @Test
@@ -166,6 +167,27 @@ class ContainerConfigTest {
     }
 
     @Test
+    void testParseWithAutotuneConfig() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--autotune-config", "configs/autotune.json", "/rootfs", "/bin/sh"});
+        assertEquals(Path.of("configs/autotune.json"), config.autotuneConfig());
+        assertTrue(config.hasAutotuneConfig());
+        assertEquals("/rootfs", config.rootfs());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
+    void testParseWithImageAndAutotuneConfig() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--image", "alpine:latest", "--autotune-config", "/tmp/autotune.json", "/bin/httpd"});
+        assertEquals("alpine:latest", config.image());
+        assertEquals(Path.of("/tmp/autotune.json"), config.autotuneConfig());
+        assertTrue(config.hasAutotuneConfig());
+        assertNull(config.rootfs());
+        assertArrayEquals(new String[]{"/bin/httpd"}, config.command());
+    }
+
+    @Test
     void testParseWithImageCommandArgs() {
         ContainerConfig config = ContainerConfig.parse(
                 new String[]{"run", "--image", "alpine", "/bin/sh", "-c", "echo hi"});
@@ -215,6 +237,12 @@ class ContainerConfigTest {
                 () -> ContainerConfig.parse(new String[]{"run", "--seccomp-policy"}));
 
         assertEquals("--seccomp-policy requires a value", error.getMessage());
+    }
+
+    @Test
+    void testParseAutotuneConfigMissingValueThrows() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ContainerConfig.parse(new String[]{"run", "--autotune-config"}));
     }
 
     @Test
