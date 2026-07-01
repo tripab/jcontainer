@@ -63,6 +63,24 @@ class ContainerStateTest {
     }
 
     @Test
+    void testSaveAndLoadPreservesSeccompMetadata() throws IOException {
+        ContainerState state = ContainerState.create(
+                "/rootfs",
+                "alpine:latest",
+                new String[]{"/bin/sh"},
+                99999,
+                "/tmp/echo-policy.json",
+                "sha256:abc123");
+        Path dir = tempDir.resolve(state.id());
+
+        state.save(dir);
+
+        ContainerState loaded = ContainerState.load(dir);
+        assertEquals("/tmp/echo-policy.json", loaded.seccompPolicyPath());
+        assertEquals("sha256:abc123", loaded.seccompPolicyDigest());
+    }
+
+    @Test
     void testSaveCreatesDirectory() throws IOException {
         ContainerState state = ContainerState.create("/rootfs", null,
                 new String[]{"/bin/sh"}, 1);
@@ -93,14 +111,21 @@ class ContainerStateTest {
 
     @Test
     void testWithStatusPreservesOtherFields() {
-        ContainerState state = ContainerState.create("/rootfs", "alpine:3.19",
-                new String[]{"/bin/sh", "-c", "ls"}, 555);
+        ContainerState state = ContainerState.create(
+                "/rootfs",
+                "alpine:3.19",
+                new String[]{"/bin/sh", "-c", "ls"},
+                555,
+                "/tmp/policy.json",
+                "sha256:def456");
         ContainerState updated = state.withStatus(ContainerState.STATUS_STOPPED, null);
 
         assertEquals(state.rootfs(), updated.rootfs());
         assertEquals(state.image(), updated.image());
         assertArrayEquals(state.command(), updated.command());
         assertEquals(state.startTime(), updated.startTime());
+        assertEquals(state.seccompPolicyPath(), updated.seccompPolicyPath());
+        assertEquals(state.seccompPolicyDigest(), updated.seccompPolicyDigest());
     }
 
     @Test

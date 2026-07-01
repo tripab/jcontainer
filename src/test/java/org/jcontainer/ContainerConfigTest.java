@@ -2,6 +2,8 @@ package org.jcontainer;
 
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class ContainerConfigTest {
@@ -16,6 +18,7 @@ class ContainerConfigTest {
         assertNull(config.cpuPercent());
         assertFalse(config.hasResourceLimits());
         assertFalse(config.networkEnabled());
+        assertNull(config.seccompPolicy());
     }
 
     @Test
@@ -152,8 +155,10 @@ class ContainerConfigTest {
     @Test
     void testParseWithImageAndOtherFlags() {
         ContainerConfig config = ContainerConfig.parse(
-                new String[]{"run", "--image", "alpine:3.19", "--net", "--memory", "100m", "--cpu", "50", "/bin/sh"});
+                new String[]{"run", "--image", "alpine:3.19", "--seccomp-policy", "policy.json",
+                        "--net", "--memory", "100m", "--cpu", "50", "/bin/sh"});
         assertEquals("alpine:3.19", config.image());
+        assertEquals(Path.of("policy.json"), config.seccompPolicy());
         assertTrue(config.networkEnabled());
         assertEquals(100L * 1024 * 1024, config.memoryBytes());
         assertEquals(50, config.cpuPercent());
@@ -178,6 +183,38 @@ class ContainerConfigTest {
     void testParseImageMissingValueThrows() {
         assertThrows(IllegalArgumentException.class,
                 () -> ContainerConfig.parse(new String[]{"run", "--image"}));
+    }
+
+    @Test
+    void testParseWithSeccompPolicyFlag() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--seccomp-policy", "/tmp/echo-policy.json", "/rootfs", "/bin/echo", "hello"});
+
+        assertEquals(Path.of("/tmp/echo-policy.json"), config.seccompPolicy());
+        assertEquals("/rootfs", config.rootfs());
+        assertArrayEquals(new String[]{"/bin/echo", "hello"}, config.command());
+    }
+
+    @Test
+    void testParseWithSeccompPolicyAndOtherRootfsModeFlags() {
+        ContainerConfig config = ContainerConfig.parse(
+                new String[]{"run", "--net", "--memory", "64m", "--seccomp-policy", "policy.json",
+                        "--cpu", "25", "/rootfs", "/bin/sh"});
+
+        assertTrue(config.networkEnabled());
+        assertEquals(64L * 1024 * 1024, config.memoryBytes());
+        assertEquals(25, config.cpuPercent());
+        assertEquals(Path.of("policy.json"), config.seccompPolicy());
+        assertEquals("/rootfs", config.rootfs());
+        assertArrayEquals(new String[]{"/bin/sh"}, config.command());
+    }
+
+    @Test
+    void testParseSeccompPolicyMissingValueThrows() {
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> ContainerConfig.parse(new String[]{"run", "--seccomp-policy"}));
+
+        assertEquals("--seccomp-policy requires a value", error.getMessage());
     }
 
     @Test

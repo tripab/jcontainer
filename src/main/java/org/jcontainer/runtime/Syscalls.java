@@ -5,7 +5,7 @@ import java.lang.invoke.MethodHandle;
 
 /**
  * FFM bindings for native syscalls used by the container runtime.
- * Cross-platform functions (chroot, chdir) are available on both Linux and macOS.
+ * Cross-platform functions (chroot, chdir, execv) are available on both Linux and macOS.
  * Linux-only functions (unshare, mount, umount2, sethostname, pivot_root) are
  * only initialized when running on Linux.
  */
@@ -20,7 +20,7 @@ public final class Syscalls {
     private Syscalls() {}
 
     // -----------------------------------------------------------------------
-    // Cross-platform: chroot, chdir
+    // Cross-platform: chroot, chdir, execv
     // -----------------------------------------------------------------------
 
     private static final MethodHandle CHROOT = LINKER.downcallHandle(
@@ -30,6 +30,10 @@ public final class Syscalls {
     private static final MethodHandle CHDIR = LINKER.downcallHandle(
             LOOKUP.find("chdir").orElseThrow(),
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
+
+    private static final MethodHandle EXECV = LINKER.downcallHandle(
+            LOOKUP.find("execv").orElseThrow(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     public static int chroot(Arena arena, String path) {
         try {
@@ -47,6 +51,18 @@ public final class Syscalls {
         }
     }
 
+    public static int execv(Arena arena, String path, String[] argv) {
+        if (argv == null || argv.length == 0) {
+            throw new IllegalArgumentException("argv must contain at least the executable path");
+        }
+
+        try {
+            return (int) EXECV.invokeExact(arena.allocateFrom(path), buildArgv(arena, argv));
+        } catch (Throwable t) {
+            throw new RuntimeException("execv failed", t);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Linux-only: unshare, sethostname, mount, umount2, pivot_root
     // -----------------------------------------------------------------------
@@ -55,6 +71,7 @@ public final class Syscalls {
     private static final MethodHandle SETHOSTNAME;
     private static final MethodHandle MOUNT;
     private static final MethodHandle UMOUNT2;
+    private static final MethodHandle PRCTL;
     private static final MethodHandle SYSCALL;
 
     static {
@@ -80,6 +97,15 @@ public final class Syscalls {
                     FunctionDescriptor.of(ValueLayout.JAVA_INT,
                             ValueLayout.ADDRESS, ValueLayout.JAVA_INT));
 
+            PRCTL = LINKER.downcallHandle(
+                    LOOKUP.find("prctl").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_INT,
+                            ValueLayout.JAVA_LONG,
+                            ValueLayout.JAVA_LONG,
+                            ValueLayout.JAVA_LONG,
+                            ValueLayout.JAVA_LONG));
+
             SYSCALL = LINKER.downcallHandle(
                     LOOKUP.find("syscall").orElseThrow(),
                     FunctionDescriptor.of(ValueLayout.JAVA_LONG,
@@ -90,6 +116,7 @@ public final class Syscalls {
             SETHOSTNAME = null;
             MOUNT = null;
             UMOUNT2 = null;
+            PRCTL = null;
             SYSCALL = null;
         }
     }
@@ -136,6 +163,15 @@ public final class Syscalls {
         }
     }
 
+    public static int prctl(int option, long arg2, long arg3, long arg4, long arg5) {
+        requireLinux("prctl");
+        try {
+            return (int) PRCTL.invokeExact(option, arg2, arg3, arg4, arg5);
+        } catch (Throwable t) {
+            throw new RuntimeException("prctl failed", t);
+        }
+    }
+
     public static long pivotRoot(Arena arena, String newRoot, String putOld) {
         requireLinux("pivot_root");
         try {
@@ -152,5 +188,14 @@ public final class Syscalls {
         if (!IS_LINUX) {
             throw new UnsupportedOperationException(name + " is only available on Linux");
         }
+    }
+
+    private static MemorySegment buildArgv(Arena arena, String[] argv) {
+        MemorySegment argvSegment = arena.allocate(ValueLayout.ADDRESS, argv.length + 1L);
+        for (int i = 0; i < argv.length; i++) {
+            argvSegment.setAtIndex(ValueLayout.ADDRESS, i, arena.allocateFrom(argv[i]));
+        }
+        argvSegment.setAtIndex(ValueLayout.ADDRESS, argv.length, MemorySegment.NULL);
+        return argvSegment;
     }
 }

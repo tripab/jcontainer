@@ -21,7 +21,9 @@ public record ContainerState(
         String image,
         String[] command,
         String status,
-        Integer exitCode
+        Integer exitCode,
+        String seccompPolicyPath,
+        String seccompPolicyDigest
 ) {
     public static final String STATUS_RUNNING = "running";
     public static final String STATUS_EXITED = "exited";
@@ -35,6 +37,14 @@ public record ContainerState(
      * Create a new container state with "running" status.
      */
     public static ContainerState create(String rootfs, String image, String[] command, long pid) {
+        return create(rootfs, image, command, pid, null, null);
+    }
+
+    /**
+     * Create a new container state with "running" status and optional seccomp metadata.
+     */
+    public static ContainerState create(String rootfs, String image, String[] command, long pid,
+                                        String seccompPolicyPath, String seccompPolicyDigest) {
         return new ContainerState(
                 generateId(),
                 pid,
@@ -43,7 +53,9 @@ public record ContainerState(
                 image,
                 command,
                 STATUS_RUNNING,
-                null
+                null,
+                seccompPolicyPath,
+                seccompPolicyDigest
         );
     }
 
@@ -51,7 +63,17 @@ public record ContainerState(
      * Return a new ContainerState with updated status and exit code.
      */
     public ContainerState withStatus(String newStatus, Integer newExitCode) {
-        return new ContainerState(id, pid, startTime, rootfs, image, command, newStatus, newExitCode);
+        return new ContainerState(
+                id,
+                pid,
+                startTime,
+                rootfs,
+                image,
+                command,
+                newStatus,
+                newExitCode,
+                seccompPolicyPath,
+                seccompPolicyDigest);
     }
 
     /**

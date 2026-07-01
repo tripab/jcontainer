@@ -1,7 +1,10 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -13,7 +16,7 @@ class MacOSRuntimeTest {
     @Test
     void testBuildChildCommandNoUnshare() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/classes", "/rootfs",
+                "/usr/bin/java", "/app/classes", null, "/rootfs",
                 new String[]{"/bin/sh"}, false);
 
         assertFalse(cmd.contains("unshare"), "macOS command should not contain unshare");
@@ -22,7 +25,7 @@ class MacOSRuntimeTest {
     @Test
     void testBuildChildCommandStructure() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/classes", "/rootfs",
+                "/usr/bin/java", "/app/classes", null, "/rootfs",
                 new String[]{"/bin/sh", "-c", "echo hi"}, false);
 
         assertEquals("/usr/bin/java", cmd.get(0));
@@ -53,11 +56,54 @@ class MacOSRuntimeTest {
     @Test
     void testBuildChildCommandIgnoresNetworkFlag() {
         List<String> cmd = runtime.buildChildCommand(
-                "/usr/bin/java", "/app/classes", "/rootfs",
+                "/usr/bin/java", "/app/classes", null, "/rootfs",
                 new String[]{"/bin/sh"}, true);
 
         // macOS ignores networkEnabled — no --net, no unshare
         assertFalse(cmd.contains("--net"));
         assertFalse(cmd.contains("unshare"));
+    }
+
+    @Test
+    void testBuildChildCommandIncludesSeccompPolicyWhenPresent() {
+        List<String> cmd = runtime.buildChildCommand(
+                "/usr/bin/java", "/app/classes", Path.of("/tmp/policy.json"), "/rootfs",
+                new String[]{"/bin/sh"}, false);
+
+        assertEquals("--seccomp-policy", cmd.get(6));
+        assertEquals("/tmp/policy.json", cmd.get(7));
+        assertEquals("/rootfs", cmd.get(8));
+    }
+
+    @Test
+    void testExecCommandUsesNativeExecv() {
+        RecordingMacOSRuntime runtime = new RecordingMacOSRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh", "-c", "echo hi"});
+
+        runtime.execCommand(executable, null);
+
+        assertEquals(List.of("exec:/bin/sh"), runtime.events);
+    }
+
+    @Test
+    void testExecCommandRejectsSeccompPolicy() {
+        RecordingMacOSRuntime runtime = new RecordingMacOSRuntime();
+        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh"});
+
+        UnsupportedOperationException exception = assertThrows(
+                UnsupportedOperationException.class,
+                () -> runtime.execCommand(executable, Path.of("/tmp/policy.json")));
+
+        assertEquals("Seccomp policies are only supported on Linux", exception.getMessage());
+        assertTrue(runtime.events.isEmpty(), "seccomp rejection should happen before exec");
+    }
+
+    private static final class RecordingMacOSRuntime extends MacOSRuntime {
+        private final List<String> events = new ArrayList<>();
+
+        @Override
+        protected void exec(ResolvedExecutable executable) {
+            events.add("exec:" + executable.path());
+        }
     }
 }

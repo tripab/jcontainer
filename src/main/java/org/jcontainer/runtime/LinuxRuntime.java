@@ -1,8 +1,10 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
+
 import java.io.File;
-import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,10 +16,19 @@ import static org.jcontainer.runtime.LinuxConstants.*;
  * Uses the {@code unshare} command for PID namespace (requires fork).
  */
 public class LinuxRuntime implements ContainerRuntime {
+    private final SeccompManager seccompManager;
+
+    public LinuxRuntime() {
+        this(new SeccompManager());
+    }
+
+    LinuxRuntime(SeccompManager seccompManager) {
+        this.seccompManager = seccompManager;
+    }
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command,
+                                          Path seccompPolicy, String rootfs, String[] command,
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add("unshare");
@@ -32,6 +43,10 @@ public class LinuxRuntime implements ContainerRuntime {
         cmd.add(classpath);
         cmd.add("org.jcontainer.JContainer");
         cmd.add("child");
+        if (seccompPolicy != null) {
+            cmd.add("--seccomp-policy");
+            cmd.add(seccompPolicy.toString());
+        }
         cmd.add(rootfs);
         cmd.addAll(List.of(command));
         return cmd;
@@ -93,15 +108,24 @@ public class LinuxRuntime implements ContainerRuntime {
     }
 
     @Override
-    public void execCommand(String[] command) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.inheritIO();
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to execute command", e);
+    public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
+        if (seccompPolicy != null) {
+            installSeccompPolicy(seccompPolicy);
+        }
+        exec(executable);
+    }
+
+    protected void installSeccompPolicy(Path seccompPolicy) {
+        seccompManager.install(seccompPolicy);
+    }
+
+    protected void exec(ResolvedExecutable executable) {
+        try (Arena arena = Arena.ofConfined()) {
+            int rc = Syscalls.execv(arena, executable.path(), executable.argv());
+            throw new RuntimeException(
+                    "execv(" + executable.path() + ") returned unexpectedly with rc=" + rc);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("Failed to execute command via execv: " + executable.path(), e);
         }
     }
 

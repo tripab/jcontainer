@@ -42,8 +42,16 @@ public class ContainerParent {
 
         // Build the child command (Linux: wrapped with unshare; macOS: plain java)
         List<String> childCmd = runtime.buildChildCommand(
-                javaPath, classpath, rootfs, config.command(),
+                javaPath, classpath, config.seccompPolicy(), rootfs, config.command(),
                 config.networkEnabled());
+        String seccompPolicyDigest;
+        try {
+            seccompPolicyDigest = resolveSeccompPolicyDigest(config.seccompPolicy());
+        } catch (IOException e) {
+            System.err.println("ERROR: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
@@ -83,7 +91,12 @@ public class ContainerParent {
 
             // Register container for lifecycle tracking
             containerState = ContainerState.create(
-                    rootfs, config.image(), config.command(), process.pid());
+                    rootfs,
+                    config.image(),
+                    config.command(),
+                    process.pid(),
+                    config.seccompPolicy() != null ? config.seccompPolicy().toString() : null,
+                    seccompPolicyDigest);
             registry.register(containerState);
             System.err.println("Container " + containerState.id() + " started (PID " + process.pid() + ")");
 
@@ -121,6 +134,10 @@ public class ContainerParent {
 
             // Update container state
             registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, exitCode);
+            if (exitCode != 0 && config.seccompPolicy() != null) {
+                System.err.println("Seccomp policy was attached. If stderr shows EPERM or Operation not permitted, "
+                        + "regenerate the policy with profile --append for this workload.");
+            }
 
             System.exit(exitCode);
         } catch (IOException | InterruptedException e) {
@@ -173,5 +190,25 @@ public class ContainerParent {
 
     static String resolveClasspath() {
         return System.getProperty("java.class.path");
+    }
+
+    static String resolveSeccompPolicyDigest(Path seccompPolicy) throws IOException {
+        if (seccompPolicy == null) {
+            return null;
+        }
+        try {
+            return SeccompPolicy.load(seccompPolicy).sha256Digest();
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid seccomp policy " + seccompPolicy + ": " + rootMessage(e), e);
+        }
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message != null ? message : current.getClass().getSimpleName();
     }
 }

@@ -34,4 +34,20 @@ class JContainerTest {
             assertFalse(JContainer.isLinux());
         }
     }
+
+    @Test
+    void testProfileCommandDispatchesToProfilerEntrypoint() {
+        RuntimeException error = assertThrows(
+                RuntimeException.class,
+                () -> JContainer.main(new String[]{
+                        "profile", "--output", "/tmp/policy.json", "/rootfs", "/bin/echo", "hello"
+                }));
+
+        if (JContainer.isLinux()) {
+            assertTrue(error instanceof IllegalStateException
+                    || error instanceof UnsupportedOperationException);
+        } else {
+            assertEquals("Profile command is only supported on Linux", error.getMessage());
+        }
+    }
 }

@@ -23,6 +23,7 @@ Containers are fundamentally a Linux kernel technology (namespaces, cgroups, piv
 | Hostname | `sethostname()` via FFM | Skipped (would affect host) |
 | /proc mount | `mount("proc", ...)` via FFM | Skipped |
 | Resource limits | Phase 2: cgroups v2 | Not available |
+| Seccomp syscall filtering | `prctl(PR_SET_SECCOMP)` with classic BPF | Not available; rejected explicitly |
 
 **Implementation**: A `ContainerRuntime` interface with `LinuxRuntime` and `MacOSRuntime` implementations. Platform detected at startup. Both use FFM for their respective syscalls — `chroot(2)` and `chdir(2)` are available on macOS via the same FFM `Linker.nativeLinker()` mechanism.
 
@@ -46,7 +47,7 @@ The parent simply re-invokes itself with "child" via `ProcessBuilder` (no namesp
 
 ## Phase 2: Enhancements (Toward Production-Like)
 
-Four features, each independently implementable:
+Five features, each independently implementable:
 
 ### Feature 1: Cgroups v2 Resource Limits (Linux only)
 - Write to `/sys/fs/cgroup/` to create a cgroup for the container
@@ -81,6 +82,13 @@ Four features, each independently implementable:
 - New class: `ContainerRegistry.java`
 - Works on both Linux and macOS
 
+### Feature 5: Least-Privilege Seccomp Profiles (Linux only)
+- Generate syscall allowlist policies with `profile --output <file> <rootfs> <cmd> [args...]`
+- Merge additional profiling runs with `profile --append --output <file> ...`
+- Enforce a policy with `run --seccomp-policy <file> <rootfs> <cmd> [args...]`
+- Store seccomp policy path and digest in container lifecycle metadata
+- macOS rejects profiling and seccomp enforcement explicitly instead of silently ignoring them
+
 ---
 
 ## Project Structure
@@ -89,12 +97,14 @@ Four features, each independently implementable:
 denver/
 ├── pom.xml
 ├── src/main/java/org/jcontainer/
-│   ├── JContainer.java              # Entry point, run/child dispatch
+│   ├── JContainer.java              # Entry point, run/profile/child dispatch
 │   ├── ContainerParent.java          # Parent process logic
 │   ├── ContainerChild.java           # Child process logic
+│   ├── ContainerProfiler.java        # strace-based seccomp policy generation
+│   ├── SeccompPolicy.java            # Policy JSON model, validation, digest
 │   └── runtime/
 │       ├── ContainerRuntime.java     # Interface for platform-specific ops
-│       ├── LinuxRuntime.java         # Linux: namespaces, pivot_root, mount
+│       ├── LinuxRuntime.java         # Linux: namespaces, pivot_root, mount, seccomp
 │       ├── MacOSRuntime.java         # macOS: chroot, limited isolation
 │       ├── Syscalls.java             # FFM bindings (cross-platform)
 │       └── LinuxConstants.java       # Linux-specific constants
@@ -130,6 +140,16 @@ sudo java --enable-native-access=ALL-UNNAMED \
   -cp target/jcontainer-1.0-SNAPSHOT.jar \
   org.jcontainer.JContainer run rootfs /bin/sh
 
+# Profile a workload and write a seccomp policy — Linux only
+sudo java --enable-native-access=ALL-UNNAMED \
+  -cp target/jcontainer-1.0-SNAPSHOT.jar \
+  org.jcontainer.JContainer profile --output /tmp/echo-policy.json rootfs /bin/echo hello
+
+# Run with a generated seccomp policy — Linux only
+sudo java --enable-native-access=ALL-UNNAMED \
+  -cp target/jcontainer-1.0-SNAPSHOT.jar \
+  org.jcontainer.JContainer run --seccomp-policy /tmp/echo-policy.json rootfs /bin/echo hello
+
 # Run — macOS (chroot-only, limited isolation)
 sudo java --enable-native-access=ALL-UNNAMED \
   -cp target/jcontainer-1.0-SNAPSHOT.jar \
@@ -137,7 +157,7 @@ sudo java --enable-native-access=ALL-UNNAMED \
 
 # Run tests
 mvn test                    # Unit tests
-mvn verify -Pintegration    # Integration tests (requires rootfs + root)
+sudo mvn verify -Pintegration # Integration tests (requires rootfs + root; Linux profile tests also require strace)
 ```
 
 ---
@@ -178,6 +198,13 @@ mvn verify -Pintegration    # Integration tests (requires rootfs + root)
 - **`testBuildChildCommandStructure`**: Verify command is just `[javaPath, flags, -cp, classpath, mainClass, "child", rootfs, ...cmd]`
 - **`testSetupParentIsNoOp`**: Verify `setupParent()` completes without error (and prints a warning)
 
+#### Seccomp and profiling tests
+- **`SeccompPolicyTest.java`**: Verify JSON round trips, stable digest computation, architecture checks, syscall validation, and deterministic normalization
+- **`SeccompFilterBuilderTest.java`**: Verify classic BPF arch guards, deny path, allowlist checks, bootstrap `execve` injection, and oversized policy rejection
+- **`SeccompManagerTest.java`**: Verify `no_new_privs` and `PR_SET_SECCOMP` installation behavior and install-time error messages
+- **`ContainerProfilerTest.java`**: Verify profile orchestration, deterministic profile output, `--append` merging, image rootfs resolution, and nonzero workload failure handling
+- **`StraceParserTest.java`**: Verify setup-noise discard, descendant trace parsing, and missing final payload `execve` failures
+
 ### Integration Tests (require rootfs, root privileges, platform-specific)
 
 #### `ContainerIntegrationTest.java`
@@ -191,6 +218,12 @@ Annotated with `@Tag("integration")`, skipped by default (enabled via Maven fail
 - **`testContainerExitCode`** (Linux + macOS): Run `exit 42` and verify the parent process gets exit code 42
 - **`testContainerStdout`** (Linux + macOS): Run `echo hello` and capture stdout, verify "hello" appears
 - **`testMacOSWarning`** (macOS only): Capture stderr, verify isolation-limited warning is printed
+- **`testLinuxProfileGeneratesEchoPolicy`** (Linux only): Run `profile` for `/bin/echo`, validate that a policy file is written, and verify profile report output
+- **`testLinuxRunWithGeneratedSeccompPolicySucceedsForSameWorkload`** (Linux only): Profile `/bin/echo`, run `/bin/echo` under the generated policy, and verify it succeeds
+- **`testLinuxGeneratedPolicyRejectsIncompatibleWorkload`** (Linux only): Profile `/bin/true`, run `/bin/echo` under that policy, and verify seccomp denial context
+- **`testLinuxSeccompPolicyDeniesIncompleteWorkload`** (Linux only): Attach a deliberately incomplete policy and verify the denied workload fails
+- **`testMacOSProfileFailsUnsupported`** (macOS only): Verify `profile` fails with an unsupported-feature message
+- **`testMacOSRunWithSeccompPolicyFailsUnsupported`** (macOS only): Verify `run --seccomp-policy` fails with an unsupported-feature message
 
 ---
 
@@ -210,4 +243,8 @@ Annotated with `@Tag("integration")`, skipped by default (enabled via Maven fail
     - `exit` → clean return to host
     - Warning printed about limited isolation
 6. **Integration tests**: `sudo mvn verify -Pintegration` passes on respective platforms
-7. **Phase 2**: Each feature tested independently
+7. **Seccomp smoke test**:
+    - `profile --output /tmp/echo-policy.json rootfs /bin/echo hello` writes a valid policy
+    - `run --seccomp-policy /tmp/echo-policy.json rootfs /bin/echo hello` succeeds
+    - `run --seccomp-policy /tmp/echo-policy.json rootfs /bin/sh -c 'uname -a'` fails with denial context
+8. **Phase 2**: Each feature tested independently
