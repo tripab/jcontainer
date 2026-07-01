@@ -119,7 +119,7 @@ denver/
 │       └── ContainerIntegrationTest.java  # End-to-end container tests
 ├── scripts/
 │   ├── setup-rootfs.sh              # Downloads Alpine miniroot (Linux)
-│   └── setup-rootfs-macos.sh        # Creates a minimal rootfs for macOS testing
+│   └── setup-rootfs-macos.sh        # Creates a minimal macOS-compatible rootfs for chroot testing
 └── rootfs/                           # (gitignored) container root filesystem
 ```
 
@@ -132,7 +132,7 @@ mvn clean package
 
 # Setup rootfs (Linux)
 ./scripts/setup-rootfs.sh
-# Setup rootfs (macOS — requires Docker)
+# Setup rootfs (macOS — builds a host-binary chroot rootfs)
 ./scripts/setup-rootfs-macos.sh
 
 # Run — Linux (full isolation)
@@ -235,7 +235,7 @@ Annotated with `@Tag("integration")`, skipped by default (enabled via Maven fail
 
 **Platform-conditional tests** (use JUnit `@EnabledOnOs`):
 
-- **`testContainerSeesIsolatedFilesystem`** (Linux + macOS): Run `ls /` inside container, verify output matches rootfs contents (e.g., contains Alpine's `/bin`, `/etc`) and not host root
+- **`testContainerSeesIsolatedFilesystem`** (Linux + macOS): Run `ls /` inside container, verify output matches rootfs contents and not host root
 - **`testContainerHostname`** (Linux only): Run `hostname` inside container, verify output is "container"
 - **`testContainerPidNamespace`** (Linux only): Run `cat /proc/1/cmdline` inside container, verify PID 1 is the launched command (not host init)
 - **`testContainerExitCode`** (Linux + macOS): Run `exit 42` and verify the parent process gets exit code 42
@@ -262,7 +262,7 @@ Annotated with `@Tag("integration")`, skipped by default (enabled via Maven fail
     - `ls /` → Alpine rootfs, not host
     - `exit` → clean return to host
 5. **macOS chroot test**: `sudo java ... JContainer run rootfs /bin/sh`
-    - `ls /` → rootfs contents, not host root
+    - `ls /` → macOS test rootfs contents, not host root
     - `exit` → clean return to host
     - Warning printed about limited isolation
 6. **Integration tests**: `sudo mvn verify -Pintegration` passes on respective platforms
