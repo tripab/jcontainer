@@ -5,7 +5,7 @@ import java.lang.invoke.MethodHandle;
 
 /**
  * FFM bindings for native syscalls used by the container runtime.
- * Cross-platform functions (chroot, chdir, execv) are available on both Linux and macOS.
+ * Cross-platform functions (chroot, chdir) are available on both Linux and macOS.
  * Linux-only functions (unshare, mount, umount2, sethostname, pivot_root) are
  * only initialized when running on Linux.
  */
@@ -20,7 +20,7 @@ public final class Syscalls {
     private Syscalls() {}
 
     // -----------------------------------------------------------------------
-    // Cross-platform: chroot, chdir, execv
+    // Cross-platform: chroot, chdir, execvp
     // -----------------------------------------------------------------------
 
     private static final MethodHandle CHROOT = LINKER.downcallHandle(
@@ -31,9 +31,10 @@ public final class Syscalls {
             LOOKUP.find("chdir").orElseThrow(),
             FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS));
 
-    private static final MethodHandle EXECV = LINKER.downcallHandle(
-            LOOKUP.find("execv").orElseThrow(),
-            FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS));
+    private static final MethodHandle EXECVP = LINKER.downcallHandle(
+            LOOKUP.find("execvp").orElseThrow(),
+            FunctionDescriptor.of(ValueLayout.JAVA_INT,
+                    ValueLayout.ADDRESS, ValueLayout.ADDRESS));
 
     public static int chroot(Arena arena, String path) {
         try {
@@ -51,15 +52,21 @@ public final class Syscalls {
         }
     }
 
-    public static int execv(Arena arena, String path, String[] argv) {
-        if (argv == null || argv.length == 0) {
-            throw new IllegalArgumentException("argv must contain at least the executable path");
+    public static int execvp(Arena arena, String[] command) {
+        if (command == null || command.length == 0) {
+            throw new IllegalArgumentException("Command must not be empty");
         }
 
         try {
-            return (int) EXECV.invokeExact(arena.allocateFrom(path), buildArgv(arena, argv));
+            MemorySegment argv = arena.allocate(ValueLayout.ADDRESS, command.length + 1);
+            for (int i = 0; i < command.length; i++) {
+                argv.setAtIndex(ValueLayout.ADDRESS, i, arena.allocateFrom(command[i]));
+            }
+            argv.setAtIndex(ValueLayout.ADDRESS, command.length, MemorySegment.NULL);
+
+            return (int) EXECVP.invokeExact(arena.allocateFrom(command[0]), argv);
         } catch (Throwable t) {
-            throw new RuntimeException("execv failed", t);
+            throw new RuntimeException("execvp failed", t);
         }
     }
 

@@ -6,6 +6,7 @@ import java.io.File;
 import java.lang.foreign.Arena;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.jcontainer.runtime.LinuxConstants.*;
@@ -121,11 +122,11 @@ public class LinuxRuntime implements ContainerRuntime {
 
     protected void exec(ResolvedExecutable executable) {
         try (Arena arena = Arena.ofConfined()) {
-            int rc = Syscalls.execv(arena, executable.path(), executable.argv());
-            throw new RuntimeException(
-                    "execv(" + executable.path() + ") returned unexpectedly with rc=" + rc);
+            int rc = Syscalls.execvp(arena, executable.argv());
+            throw new RuntimeException("Failed to execute command via execvp: "
+                    + Arrays.toString(executable.argv()) + " rc=" + rc);
         } catch (RuntimeException e) {
-            throw new RuntimeException("Failed to execute command via execv: " + executable.path(), e);
+            throw new RuntimeException("Failed to execute command via execvp: " + executable.path(), e);
         }
     }
 
