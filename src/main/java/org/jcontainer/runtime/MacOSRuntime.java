@@ -16,7 +16,7 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command,
+                                          Path seccompPolicy, String rootfs, String[] command,
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaPath);
@@ -69,7 +69,7 @@ public class MacOSRuntime implements ContainerRuntime {
 
     protected void exec(ResolvedExecutable executable) {
         try (Arena arena = Arena.ofConfined()) {
-            int rc = Syscalls.execvp(arena, executable.path(), executable.argv());
+            int rc = Syscalls.execvp(arena, executable.argv());
             throw new RuntimeException("Failed to execute command via execvp: "
                     + Arrays.toString(executable.argv()) + " rc=" + rc);
         } catch (RuntimeException e) {
