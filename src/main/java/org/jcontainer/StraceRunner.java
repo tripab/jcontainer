@@ -65,11 +65,16 @@ public class StraceRunner {
 
     private int straceInsertIndex(List<String> childCommand) {
         if (runtime instanceof LinuxRuntime) {
-            int forkIndex = childCommand.indexOf("--fork");
-            if (forkIndex < 0) {
-                throw new IllegalStateException("Linux child command is missing --fork: " + childCommand);
+            // The Linux child command is `unshare <options...> <java> ...`. strace must
+            // wrap the java payload that unshare execs, so it has to be inserted after
+            // every unshare option (e.g. `--propagation private`) rather than right
+            // after `--fork`; otherwise those options leak into strace's own argv.
+            int javaIndex = childCommand.indexOf(javaPath);
+            if (javaIndex < 0) {
+                throw new IllegalStateException(
+                        "Linux child command is missing the java executable " + javaPath + ": " + childCommand);
             }
-            return forkIndex + 1;
+            return javaIndex;
         }
         return 0;
     }

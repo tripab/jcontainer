@@ -30,18 +30,22 @@ class StraceRunnerTest {
         List<String> command = runner.buildCommand(config, "/rootfs", Path.of("/tmp/traces/trace"));
 
         assertEquals("unshare", command.get(0));
-        assertEquals("--pid", command.get(1));
-        assertEquals("--fork", command.get(2));
-        assertEquals("strace", command.get(3));
-        assertEquals("-ff", command.get(4));
-        assertEquals("-o", command.get(5));
-        assertEquals("/tmp/traces/trace", command.get(6));
-        assertEquals("/usr/bin/java", command.get(7));
-        assertEquals("org.jcontainer.JContainer", command.get(11));
-        assertEquals("child", command.get(12));
-        assertEquals("/rootfs", command.get(13));
-        assertEquals("/bin/echo", command.get(14));
-        assertEquals("hello", command.get(15));
+        assertEquals("--pid", command.get(3));
+        assertEquals("--fork", command.get(4));
+        // The unshare launcher options (including --propagation private) must all stay
+        // with unshare; strace wraps only the java payload that unshare execs.
+        assertEquals("--propagation", command.get(5));
+        assertEquals("private", command.get(6));
+        assertEquals("strace", command.get(7));
+        assertEquals("-ff", command.get(8));
+        assertEquals("-o", command.get(9));
+        assertEquals("/tmp/traces/trace", command.get(10));
+        assertEquals("/usr/bin/java", command.get(11));
+        assertEquals("org.jcontainer.JContainer", command.get(15));
+        assertEquals("child", command.get(16));
+        assertEquals("/rootfs", command.get(17));
+        assertEquals("/bin/echo", command.get(18));
+        assertEquals("hello", command.get(19));
     }
 
     @Test
@@ -81,8 +85,8 @@ class StraceRunnerTest {
 
         assertEquals(Path.of("/tmp/traces/profile"), result.traceBase());
         assertEquals(17, result.exitCode());
-        assertEquals("strace", runner.recordedCommand.get(3));
-        assertEquals("/bin/echo", runner.recordedCommand.get(14));
+        assertEquals("strace", runner.recordedCommand.get(7));
+        assertEquals("/bin/echo", runner.recordedCommand.get(18));
     }
 
     private static final class RecordingStraceRunner extends StraceRunner {

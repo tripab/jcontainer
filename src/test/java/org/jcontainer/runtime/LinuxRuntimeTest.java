@@ -20,15 +20,21 @@ class LinuxRuntimeTest {
                 new String[]{"/bin/sh", "-c", "echo hello"}, false);
 
         assertEquals("unshare", cmd.get(0));
-        assertEquals("--pid", cmd.get(1));
-        assertEquals("--fork", cmd.get(2));
-        assertEquals("/usr/bin/java", cmd.get(3));
-        assertEquals("--enable-native-access=ALL-UNNAMED", cmd.get(4));
-        assertEquals("-cp", cmd.get(5));
-        assertEquals("/app/target/classes", cmd.get(6));
-        assertEquals("org.jcontainer.JContainer", cmd.get(7));
-        assertEquals("child", cmd.get(8));
-        assertEquals("/app/rootfs", cmd.get(9));
+        assertTrue(cmd.contains("--mount"));
+        assertTrue(cmd.contains("--uts"));
+        assertTrue(cmd.contains("--pid"));
+        assertTrue(cmd.contains("--fork"));
+        assertTrue(cmd.contains("--propagation"));
+        assertTrue(cmd.contains("private"));
+
+        int javaIndex = cmd.indexOf("/usr/bin/java");
+        assertTrue(javaIndex > 0, "Java command should follow unshare options");
+        assertEquals("--enable-native-access=ALL-UNNAMED", cmd.get(javaIndex + 1));
+        assertEquals("-cp", cmd.get(javaIndex + 2));
+        assertEquals("/app/target/classes", cmd.get(javaIndex + 3));
+        assertEquals("org.jcontainer.JContainer", cmd.get(javaIndex + 4));
+        assertEquals("child", cmd.get(javaIndex + 5));
+        assertEquals("/app/rootfs", cmd.get(javaIndex + 6));
     }
 
     @Test
@@ -37,11 +43,11 @@ class LinuxRuntimeTest {
         List<String> cmd = runtime.buildChildCommand(
                 "/usr/bin/java", "/app/classes", null, "/rootfs", userCmd, false);
 
-        // User command starts at index 10
-        assertEquals("/bin/sh", cmd.get(10));
-        assertEquals("-c", cmd.get(11));
-        assertEquals("echo hello", cmd.get(12));
-        assertEquals(13, cmd.size());
+        int rootfsIndex = cmd.indexOf("/rootfs");
+        assertEquals("/bin/sh", cmd.get(rootfsIndex + 1));
+        assertEquals("-c", cmd.get(rootfsIndex + 2));
+        assertEquals("echo hello", cmd.get(rootfsIndex + 3));
+        assertEquals(rootfsIndex + 4, cmd.size());
     }
 
     @Test
@@ -58,9 +64,10 @@ class LinuxRuntimeTest {
                 "/usr/bin/java", "/cp", null, "/rootfs", new String[]{"/bin/sh"}, true);
 
         assertEquals("unshare", cmd.get(0));
-        assertEquals("--pid", cmd.get(1));
-        assertEquals("--net", cmd.get(2));
-        assertEquals("--fork", cmd.get(3));
+        assertTrue(cmd.contains("--mount"));
+        assertTrue(cmd.contains("--uts"));
+        assertTrue(cmd.contains("--pid"));
+        assertTrue(cmd.contains("--fork"));
         assertTrue(cmd.contains("--net"), "Command should contain --net flag");
     }
 
@@ -78,9 +85,9 @@ class LinuxRuntimeTest {
                 "/usr/bin/java", "/cp", Path.of("/tmp/policy.json"), "/rootfs",
                 new String[]{"/bin/sh"}, false);
 
-        assertEquals("--seccomp-policy", cmd.get(9));
-        assertEquals("/tmp/policy.json", cmd.get(10));
-        assertEquals("/rootfs", cmd.get(11));
+        assertEquals("--seccomp-policy", cmd.get(13));
+        assertEquals("/tmp/policy.json", cmd.get(14));
+        assertEquals("/rootfs", cmd.get(15));
     }
 
     @Test

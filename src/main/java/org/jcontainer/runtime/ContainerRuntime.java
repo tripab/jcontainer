@@ -13,7 +13,8 @@ public interface ContainerRuntime {
 
     /**
      * Build the command list to spawn the child process.
-     * On Linux, this wraps with {@code unshare --pid --fork} for PID namespace.
+     * On Linux, this wraps with {@code unshare} for mount, UTS, PID, and
+     * optionally network namespaces.
      * On macOS, this is a plain Java invocation.
      *
      * @param networkEnabled if true, the child is spawned in a new network namespace (Linux only)
@@ -24,7 +25,8 @@ public interface ContainerRuntime {
 
     /**
      * Set up the parent process before spawning the child.
-     * On Linux, creates UTS and mount namespaces via {@code unshare(2)}.
+     * On Linux, this is intentionally a no-op because namespace creation is
+     * delegated to the child launcher command.
      * On macOS, this is a no-op.
      */
     void setupParent();

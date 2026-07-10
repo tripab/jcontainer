@@ -13,8 +13,8 @@ import static org.jcontainer.runtime.LinuxConstants.*;
 
 /**
  * Linux container runtime with full namespace isolation.
- * Uses FFM for unshare, mount, pivot_root, sethostname syscalls.
- * Uses the {@code unshare} command for PID namespace (requires fork).
+ * Uses the {@code unshare} command to launch the child in fresh namespaces,
+ * then uses FFM for mount, pivot_root, sethostname, and exec syscalls.
  */
 public class LinuxRuntime implements ContainerRuntime {
     private final SeccompManager seccompManager;
@@ -33,11 +33,15 @@ public class LinuxRuntime implements ContainerRuntime {
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add("unshare");
+        cmd.add("--mount");
+        cmd.add("--uts");
         cmd.add("--pid");
         if (networkEnabled) {
             cmd.add("--net");
         }
         cmd.add("--fork");
+        cmd.add("--propagation");
+        cmd.add("private");
         cmd.add(javaPath);
         cmd.add("--enable-native-access=ALL-UNNAMED");
         cmd.add("-cp");
@@ -55,10 +59,9 @@ public class LinuxRuntime implements ContainerRuntime {
 
     @Override
     public void setupParent() {
-        int rc = Syscalls.unshare(CLONE_NEWNS | CLONE_NEWUTS);
-        if (rc != 0) {
-            throw new RuntimeException("unshare(CLONE_NEWNS | CLONE_NEWUTS) failed with rc=" + rc);
-        }
+        // Namespace creation happens in the external unshare launcher. Keeping
+        // the Java parent in the host namespace prevents failed container setup
+        // from detaching mounts needed by Maven, the shell, or the desktop.
     }
 
     @Override
