@@ -1,8 +1,10 @@
 package org.jcontainer.runtime;
 
 import org.jcontainer.ResolvedExecutable;
+import org.jcontainer.SeccompProgram;
 import org.junit.jupiter.api.Test;
 
+import java.lang.foreign.Arena;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -101,21 +103,30 @@ class LinuxRuntimeTest {
     }
 
     @Test
-    void testExecCommandInstallsSeccompBeforeNativeExecv() {
+    void testExecCommandEnforcesSeccompBeforeNativeExecv() {
         RecordingLinuxRuntime runtime = new RecordingLinuxRuntime();
         ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh"});
 
-        runtime.execCommand(executable, Path.of("/tmp/policy.json"));
+        try (PreparedSeccompFilter filter = sampleFilter()) {
+            runtime.execCommand(executable, filter);
+        }
 
-        assertEquals(List.of("seccomp:/tmp/policy.json", "exec:/bin/sh"), runtime.events);
+        assertEquals(List.of("seccomp", "exec:/bin/sh"), runtime.events);
+    }
+
+    private static PreparedSeccompFilter sampleFilter() {
+        Arena arena = Arena.ofConfined();
+        SeccompProgram program = new SeccompProgram(
+                List.of(new SeccompProgram.Instruction(0x06, 0, 0, 0)));
+        return new PreparedSeccompFilter(arena, program.materialize(arena));
     }
 
     private static final class RecordingLinuxRuntime extends LinuxRuntime {
         private final List<String> events = new ArrayList<>();
 
         @Override
-        protected void installSeccompPolicy(Path seccompPolicy) {
-            events.add("seccomp:" + seccompPolicy);
+        protected void enforceSeccomp(PreparedSeccompFilter seccomp) {
+            events.add("seccomp");
         }
 
         @Override

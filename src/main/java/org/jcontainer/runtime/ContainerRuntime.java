@@ -46,7 +46,17 @@ public interface ContainerRuntime {
     void setHostname(String hostname);
 
     /**
-     * Execute the target command inside the container.
+     * Prepare seccomp enforcement before filesystem isolation is applied.
+     * Loads and validates the policy and materializes the native filter while the host
+     * classpath (policy JSON parser, bundled syscall table) is still reachable, returning a
+     * handle to enforce after {@link #setupFilesystem}. Returns {@code null} when no policy is
+     * requested. On macOS, any non-null policy is rejected here.
      */
-    void execCommand(ResolvedExecutable executable, Path seccompPolicy);
+    PreparedSeccompFilter prepareSeccomp(Path seccompPolicy);
+
+    /**
+     * Execute the target command inside the container, enforcing the prepared seccomp
+     * filter (if any) immediately before the exec handoff.
+     */
+    void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp);
 }

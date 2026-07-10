@@ -1,6 +1,7 @@
 package org.jcontainer;
 
 import org.jcontainer.runtime.ContainerRuntime;
+import org.jcontainer.runtime.PreparedSeccompFilter;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -80,9 +81,14 @@ class ContainerChildTest {
         }
 
         @Override
-        public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
-            this.executable = executable;
+        public PreparedSeccompFilter prepareSeccomp(Path seccompPolicy) {
             this.seccompPolicy = seccompPolicy;
+            return null;
+        }
+
+        @Override
+        public void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp) {
+            this.executable = executable;
         }
     }
 }

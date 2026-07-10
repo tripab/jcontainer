@@ -32,16 +32,7 @@ public final class SeccompManager {
     }
 
     public void install(Path policyPath) {
-        Objects.requireNonNull(policyPath, "policyPath");
-        SeccompPolicy policy;
-        try {
-            policy = SeccompPolicy.load(policyPath);
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to read seccomp policy " + policyPath + ": " + e.getMessage(), e);
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("Invalid seccomp policy " + policyPath + ": " + rootMessage(e), e);
-        }
-
+        SeccompPolicy policy = loadPolicy(policyPath);
         try {
             install(policy);
         } catch (IllegalArgumentException | UnsupportedOperationException e) {
@@ -52,20 +43,70 @@ public final class SeccompManager {
     }
 
     public void install(SeccompPolicy policy) {
-        Objects.requireNonNull(policy, "policy");
+        try (PreparedSeccompFilter filter = prepare(policy)) {
+            enforce(filter);
+        }
+    }
 
+    /**
+     * Load, validate, and materialize the policy at {@code policyPath} into a native seccomp
+     * filter without installing it into the kernel.
+     *
+     * <p>This must run before filesystem isolation (pivot_root/chroot): parsing the policy JSON
+     * and reading the bundled syscall table both need the host classpath, which becomes
+     * unreachable afterwards. The returned handle owns native memory and must be
+     * {@linkplain #enforce enforced} and closed once filesystem setup is complete.
+     */
+    public PreparedSeccompFilter prepare(Path policyPath) {
+        SeccompPolicy policy = loadPolicy(policyPath);
+        try {
+            return prepare(policy);
+        } catch (IllegalArgumentException | UnsupportedOperationException e) {
+            throw new IllegalStateException("Invalid seccomp policy " + policyPath + ": " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Failed to prepare seccomp policy " + policyPath + ": " + e.getMessage(), e);
+        }
+    }
+
+    public PreparedSeccompFilter prepare(SeccompPolicy policy) {
+        Objects.requireNonNull(policy, "policy");
         SeccompProgram program = filterBuilder.build(policy, syscallTableSupplier.get());
-        try (Arena arena = Arena.ofConfined()) {
-            SeccompProgram.NativeLayout nativeLayout = program.materialize(arena);
-            check(prctlInvoker.invoke(LinuxConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0),
-                    "prctl(PR_SET_NO_NEW_PRIVS)");
-            check(prctlInvoker.invoke(
-                            LinuxConstants.PR_SET_SECCOMP,
-                            LinuxConstants.SECCOMP_MODE_FILTER,
-                            nativeLayout.program().address(),
-                            0,
-                            0),
-                    "prctl(PR_SET_SECCOMP)");
+        Arena arena = Arena.ofConfined();
+        try {
+            SeccompProgram.NativeLayout layout = program.materialize(arena);
+            return new PreparedSeccompFilter(arena, layout);
+        } catch (RuntimeException e) {
+            arena.close();
+            throw e;
+        }
+    }
+
+    /**
+     * Install a prepared filter into the current process. Safe to run after filesystem isolation
+     * because it only performs prctl syscalls against already-materialized native memory and needs
+     * no classpath access.
+     */
+    public void enforce(PreparedSeccompFilter filter) {
+        Objects.requireNonNull(filter, "filter");
+        check(prctlInvoker.invoke(LinuxConstants.PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0),
+                "prctl(PR_SET_NO_NEW_PRIVS)");
+        check(prctlInvoker.invoke(
+                        LinuxConstants.PR_SET_SECCOMP,
+                        LinuxConstants.SECCOMP_MODE_FILTER,
+                        filter.programAddress(),
+                        0,
+                        0),
+                "prctl(PR_SET_SECCOMP)");
+    }
+
+    private SeccompPolicy loadPolicy(Path policyPath) {
+        Objects.requireNonNull(policyPath, "policyPath");
+        try {
+            return SeccompPolicy.load(policyPath);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to read seccomp policy " + policyPath + ": " + e.getMessage(), e);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("Invalid seccomp policy " + policyPath + ": " + rootMessage(e), e);
         }
     }
 

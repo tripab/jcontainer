@@ -1,6 +1,7 @@
 package org.jcontainer;
 
 import org.jcontainer.runtime.ContainerRuntime;
+import org.jcontainer.runtime.PreparedSeccompFilter;
 
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -14,16 +15,22 @@ public class ContainerChild {
     public static void run(ContainerRuntime runtime, String[] args) {
         ChildConfig config = parseArgs(args);
 
-        // Set the container hostname (Linux: sethostname; macOS: no-op)
-        runtime.setHostname("container");
+        // Prepare seccomp enforcement before filesystem isolation. Loading and validating the
+        // policy needs the host classpath (JSON parser, bundled syscall table), which becomes
+        // unreachable once setupFilesystem pivots/chroots into the container rootfs. Only the
+        // native prctl install is left for after the switch.
+        try (PreparedSeccompFilter seccomp = runtime.prepareSeccomp(config.seccompPolicy())) {
+            // Set the container hostname (Linux: sethostname; macOS: no-op)
+            runtime.setHostname("container");
 
-        // Set up filesystem isolation (Linux: pivot_root; macOS: chroot)
-        runtime.setupFilesystem(config.rootfs());
+            // Set up filesystem isolation (Linux: pivot_root; macOS: chroot)
+            runtime.setupFilesystem(config.rootfs());
 
-        ResolvedExecutable executable = ExecutableResolver.resolve(Path.of("/"), config.command());
+            ResolvedExecutable executable = ExecutableResolver.resolve(Path.of("/"), config.command());
 
-        // Execute the target command
-        runtime.execCommand(executable, config.seccompPolicy());
+            // Enforce seccomp (if any) and exec the target command
+            runtime.execCommand(executable, seccomp);
+        }
     }
 
     static ChildConfig parseArgs(String[] args) {

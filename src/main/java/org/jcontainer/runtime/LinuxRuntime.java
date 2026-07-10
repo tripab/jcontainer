@@ -112,15 +112,23 @@ public class LinuxRuntime implements ContainerRuntime {
     }
 
     @Override
-    public void execCommand(ResolvedExecutable executable, Path seccompPolicy) {
-        if (seccompPolicy != null) {
-            installSeccompPolicy(seccompPolicy);
+    public PreparedSeccompFilter prepareSeccomp(Path seccompPolicy) {
+        if (seccompPolicy == null) {
+            return null;
+        }
+        return seccompManager.prepare(seccompPolicy);
+    }
+
+    @Override
+    public void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp) {
+        if (seccomp != null) {
+            enforceSeccomp(seccomp);
         }
         exec(executable);
     }
 
-    protected void installSeccompPolicy(Path seccompPolicy) {
-        seccompManager.install(seccompPolicy);
+    protected void enforceSeccomp(PreparedSeccompFilter seccomp) {
+        seccompManager.enforce(seccomp);
     }
 
     protected void exec(ResolvedExecutable executable) {

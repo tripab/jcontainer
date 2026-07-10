@@ -86,13 +86,12 @@ class MacOSRuntimeTest {
     }
 
     @Test
-    void testExecCommandRejectsSeccompPolicy() {
+    void testPrepareSeccompRejectsSeccompPolicy() {
         RecordingMacOSRuntime runtime = new RecordingMacOSRuntime();
-        ResolvedExecutable executable = new ResolvedExecutable("/bin/sh", new String[]{"/bin/sh"});
 
         UnsupportedOperationException exception = assertThrows(
                 UnsupportedOperationException.class,
-                () -> runtime.execCommand(executable, Path.of("/tmp/policy.json")));
+                () -> runtime.prepareSeccomp(Path.of("/tmp/policy.json")));
 
         assertEquals("Seccomp policies are only supported on Linux", exception.getMessage());
         assertTrue(runtime.events.isEmpty(), "seccomp rejection should happen before exec");
