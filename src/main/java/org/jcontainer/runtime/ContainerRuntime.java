@@ -1,5 +1,8 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
+
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -10,18 +13,20 @@ public interface ContainerRuntime {
 
     /**
      * Build the command list to spawn the child process.
-     * On Linux, this wraps with {@code unshare --pid --fork} for PID namespace.
+     * On Linux, this wraps with {@code unshare} for mount, UTS, PID, and
+     * optionally network namespaces.
      * On macOS, this is a plain Java invocation.
      *
      * @param networkEnabled if true, the child is spawned in a new network namespace (Linux only)
      */
     List<String> buildChildCommand(String javaPath, String classpath,
-                                   String rootfs, String[] command,
+                                   Path seccompPolicy, String rootfs, String[] command,
                                    boolean networkEnabled);
 
     /**
      * Set up the parent process before spawning the child.
-     * On Linux, creates UTS and mount namespaces via {@code unshare(2)}.
+     * On Linux, this is intentionally a no-op because namespace creation is
+     * delegated to the child launcher command.
      * On macOS, this is a no-op.
      */
     void setupParent();
@@ -41,7 +46,17 @@ public interface ContainerRuntime {
     void setHostname(String hostname);
 
     /**
-     * Execute the target command inside the container.
+     * Prepare seccomp enforcement before filesystem isolation is applied.
+     * Loads and validates the policy and materializes the native filter while the host
+     * classpath (policy JSON parser, bundled syscall table) is still reachable, returning a
+     * handle to enforce after {@link #setupFilesystem}. Returns {@code null} when no policy is
+     * requested. On macOS, any non-null policy is rejected here.
      */
-    void execCommand(String[] command);
+    PreparedSeccompFilter prepareSeccomp(Path seccompPolicy);
+
+    /**
+     * Execute the target command inside the container, enforcing the prepared seccomp
+     * filter (if any) immediately before the exec handoff.
+     */
+    void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp);
 }

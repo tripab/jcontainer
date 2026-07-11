@@ -1,37 +1,57 @@
 package org.jcontainer.runtime;
 
+import org.jcontainer.ResolvedExecutable;
+
 import java.io.File;
-import java.io.IOException;
 import java.lang.foreign.Arena;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.jcontainer.runtime.LinuxConstants.*;
 
 /**
  * Linux container runtime with full namespace isolation.
- * Uses FFM for unshare, mount, pivot_root, sethostname syscalls.
- * Uses the {@code unshare} command for PID namespace (requires fork).
+ * Uses the {@code unshare} command to launch the child in fresh namespaces,
+ * then uses FFM for mount, pivot_root, sethostname, and exec syscalls.
  */
 public class LinuxRuntime implements ContainerRuntime {
+    private final SeccompManager seccompManager;
+
+    public LinuxRuntime() {
+        this(new SeccompManager());
+    }
+
+    LinuxRuntime(SeccompManager seccompManager) {
+        this.seccompManager = seccompManager;
+    }
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command,
+                                          Path seccompPolicy, String rootfs, String[] command,
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add("unshare");
+        cmd.add("--mount");
+        cmd.add("--uts");
         cmd.add("--pid");
         if (networkEnabled) {
             cmd.add("--net");
         }
         cmd.add("--fork");
+        cmd.add("--propagation");
+        cmd.add("private");
         cmd.add(javaPath);
         cmd.add("--enable-native-access=ALL-UNNAMED");
         cmd.add("-cp");
         cmd.add(classpath);
         cmd.add("org.jcontainer.JContainer");
         cmd.add("child");
+        if (seccompPolicy != null) {
+            cmd.add("--seccomp-policy");
+            cmd.add(seccompPolicy.toString());
+        }
         cmd.add(rootfs);
         cmd.addAll(List.of(command));
         return cmd;
@@ -39,10 +59,9 @@ public class LinuxRuntime implements ContainerRuntime {
 
     @Override
     public void setupParent() {
-        int rc = Syscalls.unshare(CLONE_NEWNS | CLONE_NEWUTS);
-        if (rc != 0) {
-            throw new RuntimeException("unshare(CLONE_NEWNS | CLONE_NEWUTS) failed with rc=" + rc);
-        }
+        // Namespace creation happens in the external unshare launcher. Keeping
+        // the Java parent in the host namespace prevents failed container setup
+        // from detaching mounts needed by Maven, the shell, or the desktop.
     }
 
     @Override
@@ -93,15 +112,32 @@ public class LinuxRuntime implements ContainerRuntime {
     }
 
     @Override
-    public void execCommand(String[] command) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.inheritIO();
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to execute command", e);
+    public PreparedSeccompFilter prepareSeccomp(Path seccompPolicy) {
+        if (seccompPolicy == null) {
+            return null;
+        }
+        return seccompManager.prepare(seccompPolicy);
+    }
+
+    @Override
+    public void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp) {
+        if (seccomp != null) {
+            enforceSeccomp(seccomp);
+        }
+        exec(executable);
+    }
+
+    protected void enforceSeccomp(PreparedSeccompFilter seccomp) {
+        seccompManager.enforce(seccomp);
+    }
+
+    protected void exec(ResolvedExecutable executable) {
+        try (Arena arena = Arena.ofConfined()) {
+            int rc = Syscalls.execvp(arena, executable.argv());
+            throw new RuntimeException("Failed to execute command via execvp: "
+                    + Arrays.toString(executable.argv()) + " rc=" + rc);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("Failed to execute command via execvp: " + executable.path(), e);
         }
     }
 

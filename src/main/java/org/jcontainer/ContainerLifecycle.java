@@ -34,8 +34,8 @@ public class ContainerLifecycle {
             return;
         }
 
-        System.out.printf("%-10s %-8s %-20s %-10s %s%n",
-                "ID", "PID", "IMAGE", "STATUS", "STARTED");
+        System.out.printf("%-10s %-8s %-20s %-10s %-8s %s%n",
+                "ID", "PID", "IMAGE", "STATUS", "SECCOMP", "STARTED");
         for (ContainerState c : containers) {
             String imageDisplay = c.image() != null ? c.image() : c.rootfs();
             if (imageDisplay != null && imageDisplay.length() > 20) {
@@ -45,11 +45,13 @@ public class ContainerLifecycle {
             if (ContainerState.STATUS_EXITED.equals(c.status()) && c.exitCode() != null) {
                 statusDisplay = "exited(" + c.exitCode() + ")";
             }
-            System.out.printf("%-10s %-8s %-20s %-10s %s%n",
+            String seccompDisplay = c.seccompPolicyPath() != null ? "yes" : "-";
+            System.out.printf("%-10s %-8s %-20s %-10s %-8s %s%n",
                     c.id(),
                     ContainerState.STATUS_RUNNING.equals(c.status()) ? String.valueOf(c.pid()) : "-",
                     imageDisplay != null ? imageDisplay : "-",
                     statusDisplay,
+                    seccompDisplay,
                     c.startTime() != null ? c.startTime() : "-");
         }
     }

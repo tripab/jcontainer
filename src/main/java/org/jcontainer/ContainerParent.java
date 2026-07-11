@@ -18,6 +18,28 @@ public class ContainerParent {
 
     public static void run(ContainerRuntime runtime, String[] args) {
         ContainerConfig config = ContainerConfig.parse(args);
+        boolean isLinux = JContainer.isLinux();
+        AutotuneConfig autotuneConfig = null;
+
+        try {
+            validateAutotuneSupport(config, isLinux);
+        } catch (IllegalArgumentException e) {
+            System.err.println("ERROR: " + e.getMessage());
+            System.exit(1);
+        }
+
+        if (config.hasAutotuneConfig() && isLinux) {
+            try {
+                autotuneConfig = loadAutotuneConfig(config);
+                AutotunePreflight preflight = verifyLinuxAutotunePreflight(CGROUP_ROOT);
+                if (!preflight.psiAvailable()) {
+                    System.err.println("WARNING: PSI metrics are unavailable; autotune will continue without pressure signals.");
+                }
+            } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+                System.err.println("ERROR: " + e.getMessage());
+                System.exit(1);
+            }
+        }
 
         // Pull image if --image was specified
         String rootfs = config.rootfs();
@@ -42,13 +64,25 @@ public class ContainerParent {
 
         // Build the child command (Linux: wrapped with unshare; macOS: plain java)
         List<String> childCmd = runtime.buildChildCommand(
-                javaPath, classpath, rootfs, config.command(),
+                javaPath, classpath, config.seccompPolicy(), rootfs, config.command(),
                 config.networkEnabled());
+        String seccompPolicyDigest;
+        try {
+            seccompPolicyDigest = resolveSeccompPolicyDigest(config.seccompPolicy());
+        } catch (IOException e) {
+            System.err.println("ERROR: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        ContainerState containerState = ContainerState.createPending(
+                rootfs, config.image(), config.command())
+                .withAutotuneConfig(config.autotuneConfig());
 
         // Set up cgroups if resource limits specified (Linux only)
         CgroupManager cgroup = null;
-        if (config.hasResourceLimits() && JContainer.isLinux()) {
-            cgroup = new CgroupManager(CGROUP_ROOT);
+        if (isLinux && (config.hasResourceLimits() || autotuneConfig != null)) {
+            cgroup = createCgroupManager(CGROUP_ROOT, containerState);
             try {
                 cgroup.create();
                 if (config.memoryBytes() != null) {
@@ -58,23 +92,28 @@ public class ContainerParent {
                     cgroup.setCpuLimit(config.cpuPercent());
                 }
             } catch (IOException e) {
+                if (autotuneConfig != null) {
+                    System.err.println("ERROR: Failed to configure cgroups for autotune: " + e.getMessage());
+                    cgroup.close();
+                    System.exit(1);
+                }
                 System.err.println("WARNING: Failed to configure cgroups: " + e.getMessage());
                 cgroup.close();
                 cgroup = null;
             }
-        } else if (config.hasResourceLimits() && !JContainer.isLinux()) {
+        } else if (config.hasResourceLimits() && !isLinux) {
             System.err.println("WARNING: Resource limits (--memory, --cpu) are only supported on Linux.");
         }
 
         // Warn about --net on macOS
-        if (config.networkEnabled() && !JContainer.isLinux()) {
+        if (config.networkEnabled() && !isLinux) {
             System.err.println("WARNING: Network namespace (--net) is only supported on Linux.");
         }
 
         // Spawn the child process
         ContainerRegistry registry = new ContainerRegistry();
-        ContainerState containerState = null;
         NetworkManager network = null;
+        AutotuneLoop autotuneLoop = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(childCmd);
             // Redirect stdin from parent, capture stdout/stderr for logging
@@ -83,7 +122,13 @@ public class ContainerParent {
 
             // Register container for lifecycle tracking
             containerState = ContainerState.create(
-                    rootfs, config.image(), config.command(), process.pid());
+                    rootfs,
+                    config.image(),
+                    config.command(),
+                    process.pid(),
+                    config.seccompPolicy() != null ? config.seccompPolicy().toString() : null,
+                    seccompPolicyDigest);
+            containerState = containerState.withPid(process.pid());
             registry.register(containerState);
             System.err.println("Container " + containerState.id() + " started (PID " + process.pid() + ")");
 
@@ -104,15 +149,27 @@ public class ContainerParent {
             }
 
             // Set up networking after child starts (needs child PID for namespace)
-            if (config.networkEnabled() && JContainer.isLinux()) {
+            if (config.networkEnabled() && isLinux) {
                 network = new NetworkManager();
                 try {
                     network.setup(process.pid());
                 } catch (IOException e) {
+                    if (autotuneConfig != null) {
+                        throw new IllegalStateException(
+                                "Failed to set up container networking for autotune: " + e.getMessage(), e);
+                    }
                     System.err.println("WARNING: Failed to set up container networking: " + e.getMessage());
                     network.close();
                     network = null;
                 }
+            }
+
+            if (autotuneConfig != null) {
+                if (cgroup == null) {
+                    throw new IllegalStateException("Autotune requires an active cgroup manager");
+                }
+                autotuneLoop = createAutotuneLoop(containerState, autotuneConfig, cgroup);
+                autotuneLoop.start();
             }
 
             int exitCode = process.waitFor();
@@ -121,9 +178,13 @@ public class ContainerParent {
 
             // Update container state
             registry.updateStatus(containerState.id(), ContainerState.STATUS_EXITED, exitCode);
+            if (exitCode != 0 && config.seccompPolicy() != null) {
+                System.err.println("Seccomp policy was attached. If stderr shows EPERM or Operation not permitted, "
+                        + "regenerate the policy with profile --append for this workload.");
+            }
 
             System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
+        } catch (IOException | InterruptedException | IllegalStateException e) {
             System.err.println("ERROR: " + e.getMessage());
             if (containerState != null) {
                 try {
@@ -133,6 +194,9 @@ public class ContainerParent {
             }
             System.exit(1);
         } finally {
+            if (autotuneLoop != null) {
+                autotuneLoop.close();
+            }
             if (network != null) {
                 network.close();
             }
@@ -173,5 +237,113 @@ public class ContainerParent {
 
     static String resolveClasspath() {
         return System.getProperty("java.class.path");
+    }
+
+    static String resolveSeccompPolicyDigest(Path seccompPolicy) throws IOException {
+        if (seccompPolicy == null) {
+            return null;
+        }
+        try {
+            return SeccompPolicy.load(seccompPolicy).sha256Digest();
+        } catch (RuntimeException e) {
+            throw new IOException("Invalid seccomp policy " + seccompPolicy + ": " + rootMessage(e), e);
+        }
+    }
+
+    private static String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        String message = current.getMessage();
+        return message != null ? message : current.getClass().getSimpleName();
+    }
+
+    static CgroupManager createCgroupManager(Path cgroupRoot, ContainerState containerState) {
+        return new CgroupManager(cgroupRoot, containerState.id());
+    }
+
+    static void validateAutotuneSupport(ContainerConfig config, boolean isLinux) {
+        if (config.hasAutotuneConfig() && !isLinux) {
+            throw new IllegalArgumentException("--autotune-config is only supported on Linux.");
+        }
+    }
+
+    static AutotuneConfig loadAutotuneConfig(ContainerConfig config) throws IOException {
+        if (!config.hasAutotuneConfig()) {
+            return null;
+        }
+        if (!config.networkEnabled()) {
+            throw new IllegalArgumentException("Autotune requires --net for host-side probing.");
+        }
+        AutotuneConfig autotuneConfig = AutotuneConfig.load(config.autotuneConfig());
+        validateAutotuneProbeUsesNetworkManagerAddress(autotuneConfig);
+        return autotuneConfig;
+    }
+
+    static AutotuneLoop createAutotuneLoop(ContainerState containerState, AutotuneConfig autotuneConfig,
+                                           CgroupManager cgroupManager) {
+        return new AutotuneLoop(containerState, autotuneConfig, cgroupManager);
+    }
+
+    static void validateAutotuneProbeUsesNetworkManagerAddress(AutotuneConfig autotuneConfig) {
+        String probeHost = autotuneConfig.probe().host();
+        if (!NetworkManager.CONTAINER_IP.equals(probeHost)) {
+            throw new IllegalArgumentException(
+                    "Autotune probe host must match the NetworkManager container address "
+                            + NetworkManager.CONTAINER_IP + " for the default --net path.");
+        }
+    }
+
+    static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot) throws IOException {
+        verifyCgroupV2Root(cgroupRoot);
+
+        String preflightId = "autotune-preflight-" + ContainerState.generateId();
+        CgroupManager cgroupManager = new CgroupManager(cgroupRoot, preflightId);
+        try {
+            cgroupManager.create();
+            return verifyLinuxAutotunePreflight(cgroupRoot, cgroupManager.getCgroupPath());
+        } finally {
+            cgroupManager.close();
+        }
+    }
+
+    static AutotunePreflight verifyLinuxAutotunePreflight(Path cgroupRoot, Path cgroupPath) {
+        verifyCgroupV2Root(cgroupRoot);
+        verifyWritableControlFile(cgroupPath.resolve("cpu.max"), "cpu.max");
+        verifyWritableControlFile(cgroupPath.resolve("memory.high"), "memory.high");
+        verifyWritableControlFile(cgroupPath.resolve("memory.max"), "memory.max");
+        return new AutotunePreflight(isPsiAvailable(cgroupRoot));
+    }
+
+    static void verifyCgroupV2Root(Path cgroupRoot) {
+        if (!Files.isDirectory(cgroupRoot)) {
+            throw new IllegalStateException("Autotune requires a mounted cgroup v2 filesystem at " + cgroupRoot);
+        }
+        Path controllersFile = cgroupRoot.resolve("cgroup.controllers");
+        if (!Files.isRegularFile(controllersFile)) {
+            throw new IllegalStateException("Autotune requires cgroup v2; missing " + controllersFile);
+        }
+    }
+
+    static void verifyWritableControlFile(Path controlFile, String displayName) {
+        if (!Files.isRegularFile(controlFile)) {
+            throw new IllegalStateException("Autotune requires writable cgroup control file: " + displayName);
+        }
+        if (!Files.isWritable(controlFile)) {
+            throw new IllegalStateException("Autotune requires write access to cgroup control file: " + displayName);
+        }
+    }
+
+    static boolean isPsiAvailable(Path cgroupRoot) {
+        return isReadablePressureFile(cgroupRoot.resolve("cpu.pressure"))
+                && isReadablePressureFile(cgroupRoot.resolve("memory.pressure"));
+    }
+
+    private static boolean isReadablePressureFile(Path pressureFile) {
+        return Files.isRegularFile(pressureFile) && Files.isReadable(pressureFile);
+    }
+
+    record AutotunePreflight(boolean psiAvailable) {
     }
 }

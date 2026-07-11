@@ -1,8 +1,11 @@
 package org.jcontainer.runtime;
 
-import java.io.IOException;
+import org.jcontainer.ResolvedExecutable;
+
 import java.lang.foreign.Arena;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -13,7 +16,7 @@ public class MacOSRuntime implements ContainerRuntime {
 
     @Override
     public List<String> buildChildCommand(String javaPath, String classpath,
-                                          String rootfs, String[] command,
+                                          Path seccompPolicy, String rootfs, String[] command,
                                           boolean networkEnabled) {
         List<String> cmd = new ArrayList<>();
         cmd.add(javaPath);
@@ -22,6 +25,10 @@ public class MacOSRuntime implements ContainerRuntime {
         cmd.add(classpath);
         cmd.add("org.jcontainer.JContainer");
         cmd.add("child");
+        if (seccompPolicy != null) {
+            cmd.add("--seccomp-policy");
+            cmd.add(seccompPolicy.toString());
+        }
         cmd.add(rootfs);
         cmd.addAll(List.of(command));
         return cmd;
@@ -53,15 +60,25 @@ public class MacOSRuntime implements ContainerRuntime {
     }
 
     @Override
-    public void execCommand(String[] command) {
-        try {
-            ProcessBuilder pb = new ProcessBuilder(command);
-            pb.inheritIO();
-            Process process = pb.start();
-            int exitCode = process.waitFor();
-            System.exit(exitCode);
-        } catch (IOException | InterruptedException e) {
-            throw new RuntimeException("Failed to execute command", e);
+    public PreparedSeccompFilter prepareSeccomp(Path seccompPolicy) {
+        if (seccompPolicy != null) {
+            throw new UnsupportedOperationException("Seccomp policies are only supported on Linux");
+        }
+        return null;
+    }
+
+    @Override
+    public void execCommand(ResolvedExecutable executable, PreparedSeccompFilter seccomp) {
+        exec(executable);
+    }
+
+    protected void exec(ResolvedExecutable executable) {
+        try (Arena arena = Arena.ofConfined()) {
+            int rc = Syscalls.execvp(arena, executable.argv());
+            throw new RuntimeException("Failed to execute command via execvp: "
+                    + Arrays.toString(executable.argv()) + " rc=" + rc);
+        } catch (RuntimeException e) {
+            throw new RuntimeException("Failed to execute command via execv: " + executable.path(), e);
         }
     }
 }

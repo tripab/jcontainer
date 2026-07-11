@@ -24,9 +24,20 @@ class ContainerStateTest {
         assertEquals("/rootfs", state.rootfs());
         assertEquals("alpine:latest", state.image());
         assertArrayEquals(new String[]{"/bin/sh"}, state.command());
+        assertNull(state.autotuneConfigPath());
         assertEquals(ContainerState.STATUS_RUNNING, state.status());
         assertNull(state.exitCode());
         assertNotNull(state.startTime());
+    }
+
+    @Test
+    void testCreatePendingUsesPlaceholderPid() {
+        ContainerState state = ContainerState.createPending("/rootfs", "alpine:latest",
+                new String[]{"/bin/sh"});
+        assertNotNull(state.id());
+        assertEquals(8, state.id().length());
+        assertEquals(-1, state.pid());
+        assertEquals(ContainerState.STATUS_RUNNING, state.status());
     }
 
     @Test
@@ -58,8 +69,27 @@ class ContainerStateTest {
         assertEquals(state.rootfs(), loaded.rootfs());
         assertEquals(state.image(), loaded.image());
         assertArrayEquals(state.command(), loaded.command());
+        assertEquals(state.autotuneConfigPath(), loaded.autotuneConfigPath());
         assertEquals(state.status(), loaded.status());
         assertEquals(state.startTime(), loaded.startTime());
+    }
+
+    @Test
+    void testSaveAndLoadPreservesSeccompMetadata() throws IOException {
+        ContainerState state = ContainerState.create(
+                "/rootfs",
+                "alpine:latest",
+                new String[]{"/bin/sh"},
+                99999,
+                "/tmp/echo-policy.json",
+                "sha256:abc123");
+        Path dir = tempDir.resolve(state.id());
+
+        state.save(dir);
+
+        ContainerState loaded = ContainerState.load(dir);
+        assertEquals("/tmp/echo-policy.json", loaded.seccompPolicyPath());
+        assertEquals("sha256:abc123", loaded.seccompPolicyDigest());
     }
 
     @Test
@@ -93,14 +123,44 @@ class ContainerStateTest {
 
     @Test
     void testWithStatusPreservesOtherFields() {
-        ContainerState state = ContainerState.create("/rootfs", "alpine:3.19",
-                new String[]{"/bin/sh", "-c", "ls"}, 555);
+        ContainerState state = ContainerState.create(
+                "/rootfs",
+                "alpine:3.19",
+                new String[]{"/bin/sh", "-c", "ls"},
+                555,
+                "/tmp/policy.json",
+                "sha256:def456");
         ContainerState updated = state.withStatus(ContainerState.STATUS_STOPPED, null);
 
         assertEquals(state.rootfs(), updated.rootfs());
         assertEquals(state.image(), updated.image());
         assertArrayEquals(state.command(), updated.command());
+        assertEquals(state.autotuneConfigPath(), updated.autotuneConfigPath());
         assertEquals(state.startTime(), updated.startTime());
+        assertEquals(state.seccompPolicyPath(), updated.seccompPolicyPath());
+        assertEquals(state.seccompPolicyDigest(), updated.seccompPolicyDigest());
+    }
+
+    @Test
+    void testWithPidPreservesStableIdAndUpdatesPid() {
+        ContainerState pending = ContainerState.createPending("/rootfs", "alpine:3.19",
+                new String[]{"/bin/sh"});
+
+        ContainerState running = pending.withPid(4242);
+
+        assertEquals(pending.id(), running.id());
+        assertEquals(4242, running.pid());
+        assertEquals(pending.startTime(), running.startTime());
+        assertEquals(pending.autotuneConfigPath(), running.autotuneConfigPath());
+        assertEquals(pending.status(), running.status());
+    }
+
+    @Test
+    void testWithPidRejectsNonPositivePid() {
+        ContainerState pending = ContainerState.createPending("/rootfs", null,
+                new String[]{"/bin/sh"});
+
+        assertThrows(IllegalArgumentException.class, () -> pending.withPid(0));
     }
 
     @Test
@@ -113,6 +173,20 @@ class ContainerStateTest {
         state.save(dir);
         ContainerState loaded = ContainerState.load(dir);
         assertNull(loaded.image());
+    }
+
+    @Test
+    void testWithAutotuneConfigPersistsPath() throws IOException {
+        ContainerState state = ContainerState.createPending("/rootfs", "alpine",
+                new String[]{"/bin/sh"})
+                .withAutotuneConfig(Path.of("configs/autotune.json"));
+
+        assertEquals("configs/autotune.json", state.autotuneConfigPath());
+
+        Path dir = tempDir.resolve(state.id());
+        state.save(dir);
+        ContainerState loaded = ContainerState.load(dir);
+        assertEquals("configs/autotune.json", loaded.autotuneConfigPath());
     }
 
     @Test
