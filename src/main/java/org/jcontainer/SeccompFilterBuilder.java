@@ -13,6 +13,22 @@ import java.util.stream.Stream;
  */
 public final class SeccompFilterBuilder {
     static final String BOOTSTRAP_EXECVE_SYSCALL = "execve";
+    static final String BOOTSTRAP_FUTEX_SYSCALL = "futex";
+
+    /**
+     * Syscalls the filter must always allow so the container runtime can cross from the
+     * seccomp-installing JVM thread into the payload, regardless of the profiled workload:
+     * <ul>
+     *   <li>{@code execve} — the final handoff itself (see also the payload boundary).
+     *   <li>{@code futex} — the JVM/glibc machinery that runs on the enforcing thread between the
+     *       installing {@code prctl} and the {@code execve} (safepoint and lock handshakes) uses a
+     *       futex; without it the handoff aborts before the payload ever starts.
+     * </ul>
+     * These are enforcement requirements of this runtime, so they are injected into the filter
+     * rather than recorded in the generated policy, which stays a faithful record of the workload.
+     */
+    static final List<String> RUNTIME_BRIDGE_SYSCALLS =
+            List.of(BOOTSTRAP_EXECVE_SYSCALL, BOOTSTRAP_FUTEX_SYSCALL);
     static final int SECCOMP_DATA_NR_OFFSET = 0;
     static final int SECCOMP_DATA_ARCH_OFFSET = 4;
     static final int EPERM_ERRNO = 1;
@@ -56,7 +72,7 @@ public final class SeccompFilterBuilder {
     }
 
     private static List<Integer> resolvedSyscallNumbers(SeccompPolicy policy, LinuxSyscallTable table) {
-        return Stream.concat(policy.syscalls().stream(), Stream.of(BOOTSTRAP_EXECVE_SYSCALL))
+        return Stream.concat(policy.syscalls().stream(), RUNTIME_BRIDGE_SYSCALLS.stream())
                 .sorted()
                 .distinct()
                 .map(table::numberForName)

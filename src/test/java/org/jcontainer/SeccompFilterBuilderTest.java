@@ -23,7 +23,7 @@ class SeccompFilterBuilderTest {
     private final SeccompFilterBuilder builder = new SeccompFilterBuilder();
 
     @Test
-    void testBuildForX8664InjectsBootstrapExecveIntoAllowlist() {
+    void testBuildForX8664InjectsRuntimeBridgeSyscallsIntoAllowlist() {
         SeccompProgram program = builder.build(
                 new SeccompPolicy(
                         1,
@@ -35,6 +35,8 @@ class SeccompFilterBuilderTest {
                 ),
                 LinuxSyscallTable.loadForArchitecture("linux-x86_64"));
 
+        // execve (59) and futex (202) are always injected as runtime-bridge syscalls, sorted by
+        // name alongside the policy syscalls: execve, exit_group, futex, read, write.
         assertEquals(List.of(
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_LD_ABS_W, 0, 0, SeccompFilterBuilder.SECCOMP_DATA_ARCH_OFFSET),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0,
@@ -46,8 +48,9 @@ class SeccompFilterBuilderTest {
                         Integer.toUnsignedLong(LinuxConstants.X32_SYSCALL_BIT)),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
                         LinuxConstants.SECCOMP_RET_ERRNO | SeccompFilterBuilder.EPERM_ERRNO),
-                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 4, 0, 59),
-                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 231),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 5, 0, 59),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 4, 0, 231),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 202),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 2, 0, 0),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0, 1),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
@@ -69,6 +72,8 @@ class SeccompFilterBuilderTest {
                 ),
                 LinuxSyscallTable.loadForArchitecture("linux-aarch64"));
 
+        // execve appears in the policy and the injected bridge set but is deduplicated; futex (98)
+        // is injected. Sorted by name: execve, futex, read, write.
         assertEquals(List.of(
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_LD_ABS_W, 0, 0, SeccompFilterBuilder.SECCOMP_DATA_ARCH_OFFSET),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0,
@@ -76,7 +81,8 @@ class SeccompFilterBuilderTest {
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
                         LinuxConstants.SECCOMP_RET_ERRNO | SeccompFilterBuilder.EPERM_ERRNO),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_LD_ABS_W, 0, 0, SeccompFilterBuilder.SECCOMP_DATA_NR_OFFSET),
-                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 221),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 4, 0, 221),
+                new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 3, 0, 98),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 2, 0, 63),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_JMP_JEQ_K, 1, 0, 64),
                 new SeccompProgram.Instruction(SeccompFilterBuilder.BPF_RET_K, 0, 0,
@@ -109,6 +115,7 @@ class SeccompFilterBuilderTest {
                 Integer.toUnsignedLong(table.numberForName("close")),
                 Integer.toUnsignedLong(table.numberForName("execve")),
                 Integer.toUnsignedLong(table.numberForName("exit_group")),
+                Integer.toUnsignedLong(table.numberForName("futex")),
                 Integer.toUnsignedLong(table.numberForName("read")),
                 Integer.toUnsignedLong(table.numberForName("write"))
         ), comparisonValues);
@@ -156,7 +163,7 @@ class SeccompFilterBuilderTest {
     }
 
     @Test
-    void testBuildRejectsOversizedAllowlistAfterBootstrapExecveInjection() throws ReflectiveOperationException {
+    void testBuildRejectsOversizedAllowlistAfterRuntimeBridgeInjection() throws ReflectiveOperationException {
         LinuxSyscallTable table = syntheticTable("linux-x86_64", 4057);
         List<String> syscalls = syntheticSyscalls(4056);
 
@@ -173,7 +180,7 @@ class SeccompFilterBuilderTest {
                         table));
 
         assertEquals(
-                "Seccomp allowlist for linux-x86_64 uses 4097 classic BPF instructions; kernel limit is 4096, max syscalls is 4056",
+                "Seccomp allowlist for linux-x86_64 uses 4098 classic BPF instructions; kernel limit is 4096, max syscalls is 4056",
                 error.getMessage());
     }
 
@@ -227,6 +234,7 @@ class SeccompFilterBuilderTest {
 
         Map<String, Integer> syscallNumbers = new LinkedHashMap<>();
         syscallNumbers.put("execve", 59);
+        syscallNumbers.put("futex", 202);
         for (int i = 0; i < syscallCount - 1; i++) {
             syscallNumbers.put(String.format("syscall%04d", i), i);
         }
