@@ -73,10 +73,11 @@ class StraceParserTest {
     }
 
     @Test
-    void testParseUnionsDescendantTraceFiles() throws IOException {
+    void testParseUnionsDescendantsForkedAfterPayloadExecve() throws IOException {
         Path traceBase = tempDir.resolve("trace");
         Files.writeString(traceBase.resolveSibling("trace.410"), """
                 execve("/bin/sh", ["/bin/sh"], 0x0 /* 0 vars */) = 0
+                clone(child_stack=NULL, flags=SIGCHLD) = 411
                 wait4(-1, 0x0, 0, NULL) = 411
                 rt_sigreturn({mask=[]}) = 0
                 garbage that should be discarded
@@ -91,9 +92,32 @@ class StraceParserTest {
 
         StraceParseResult result = parser.parse(traceBase);
 
-        assertEquals(Set.of("wait4", "rt_sigreturn", "openat", "read"), result.syscalls());
+        assertEquals(Set.of("clone", "wait4", "rt_sigreturn", "openat", "read"), result.syscalls());
         assertEquals(1, result.descendantTraceCount());
         assertEquals(1, result.discardedLineCount());
+    }
+
+    @Test
+    void testParseExcludesThreadNoiseSpawnedBeforePayloadExecve() throws IOException {
+        Path traceBase = tempDir.resolve("trace");
+        // Root is the JVM launcher: it clones a worker thread (601) BEFORE handing off to the
+        // payload via execve, then the payload spawns nothing. The worker thread's syscalls are
+        // setup noise and must not leak into the profile.
+        Files.writeString(traceBase.resolveSibling("trace.600"), """
+                clone(child_stack=0x7f, flags=CLONE_VM|CLONE_THREAD) = 601
+                execve("/bin/true", ["/bin/true"], 0x0 /* 0 vars */) = 0
+                brk(NULL) = 0x1234
+                exit_group(0) = ?
+                """);
+        Files.writeString(traceBase.resolveSibling("trace.601"), """
+                futex(0x7f, FUTEX_WAIT, 0, NULL) = 0
+                write(1, "jvm log\\n", 8) = 8
+                """);
+
+        StraceParseResult result = parser.parse(traceBase);
+
+        assertEquals(Set.of("brk", "exit_group"), result.syscalls());
+        assertEquals(0, result.descendantTraceCount());
     }
 
     @Test
