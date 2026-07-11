@@ -73,6 +73,35 @@ class StraceParserTest {
     }
 
     @Test
+    void testParseUsesResumedExecveBoundaryForSecondaryThreadHandoff() throws IOException {
+        // The JVM runs the payload handoff on a secondary thread, so the payload execve completes
+        // on the thread-group leader as a resumed line. Everything before it (launcher setup, the
+        // clone that spawned the exec-ing thread) is noise, and the exec-ing thread's own trace is
+        // discarded because it was spawned before the payload boundary.
+        Path traceBase = tempDir.resolve("trace");
+        Files.writeString(traceBase.resolveSibling("trace.700"), """
+                execve("/usr/bin/java", ["/usr/bin/java"], 0x0 /* 0 vars */) = 0
+                mmap(NULL, 4096, PROT_READ, MAP_PRIVATE, -1, 0) = 0x1
+                clone3({flags=CLONE_VM|CLONE_THREAD}, 88) = 701
+                futex(0x1, FUTEX_WAIT, 2, NULL) = ?
+                +++ superseded by execve in pid 701 +++
+                <... execve resumed>)                   = 0
+                brk(NULL) = 0x1234
+                write(1, "hi\\n", 3) = 3
+                exit_group(0) = ?
+                """);
+        Files.writeString(traceBase.resolveSibling("trace.701"), """
+                sched_yield() = 0
+                execve("/bin/echo", ["/bin/echo"], 0x0 /* 0 vars */ <pid changed to 700 ...>
+                """);
+
+        StraceParseResult result = parser.parse(traceBase);
+
+        assertEquals(Set.of("brk", "write", "exit_group"), result.syscalls());
+        assertEquals(0, result.descendantTraceCount());
+    }
+
+    @Test
     void testParseUnionsDescendantsForkedAfterPayloadExecve() throws IOException {
         Path traceBase = tempDir.resolve("trace");
         Files.writeString(traceBase.resolveSibling("trace.410"), """

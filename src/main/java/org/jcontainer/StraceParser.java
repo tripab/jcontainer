@@ -22,6 +22,12 @@ import java.util.regex.Pattern;
  */
 public class StraceParser {
     private static final Pattern EXECVE_SUCCESS = Pattern.compile("^execve\\(.*\\)\\s+=\\s+0$");
+    // When a non-leader thread calls execve, the kernel blocks it while it tears down the other
+    // threads, so strace splits the call and reports its completion on the thread-group leader as
+    // a resumed line. The JVM runs the payload handoff on a secondary thread, so the real payload
+    // execve surfaces in this form rather than as a plain `execve(...) = 0`.
+    private static final Pattern EXECVE_RESUMED_SUCCESS =
+            Pattern.compile("^<\\.\\.\\.\\s+execve\\s+resumed>.*=\\s+0$");
     private static final Pattern SYSCALL_NAME = Pattern.compile("^([a-zA-Z_][a-zA-Z0-9_]*)\\(");
     private static final Pattern RESUMED_SYSCALL_NAME = Pattern.compile("^<\\.\\.\\.\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s+resumed>");
     private static final Pattern SPAWNED_PID = Pattern.compile("=\\s+(\\d+)\\s*$");
@@ -128,7 +134,9 @@ public class StraceParser {
 
     private static int findLastSuccessfulExecve(List<String> lines, Path rootTrace) {
         for (int index = lines.size() - 1; index >= 0; index--) {
-            if (EXECVE_SUCCESS.matcher(lines.get(index).trim()).matches()) {
+            String trimmed = lines.get(index).trim();
+            if (EXECVE_SUCCESS.matcher(trimmed).matches()
+                    || EXECVE_RESUMED_SUCCESS.matcher(trimmed).matches()) {
                 return index;
             }
         }
