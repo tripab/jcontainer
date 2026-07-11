@@ -312,7 +312,7 @@ src/main/java/org/jcontainer/runtime/
 
 scripts/
   setup-rootfs.sh                Alpine minirootfs setup for Linux
-  setup-rootfs-macos.sh          Experimental macOS chroot rootfs setup
+  setup-rootfs-macos.sh          Diagnostic macOS chroot rootfs builder
   capture-baselines.sh           Fixed-resource Track B experiments
   run-http-load.py               HTTP load generation
   sample-cgroup.py               cgroup telemetry capture
@@ -326,14 +326,21 @@ The default suite is platform-independent and does not require root:
 mvn test
 ```
 
-The integration profile exercises namespaces, `pivot_root`, PID 1 handoff,
-seccomp profiling/enforcement, and command behavior. Run it on Linux with a
+On Linux, the integration profile exercises namespaces, `pivot_root`, PID 1
+handoff, seccomp profiling/enforcement, and payload behavior. Run it with a
 populated rootfs and root privileges:
 
 ```bash
 ./scripts/setup-rootfs.sh
 sudo mvn verify -Pintegration
 ```
+
+On macOS, the same profile validates the degraded-mode warning and explicit
+rejection of Linux-only seccomp/profile operations. Payload execution assertions
+are skipped: modern macOS system binaries depend on the dyld shared cache, so a
+small standalone chroot rootfs cannot be assembled by copying `/bin` and
+`/usr/lib` files. The macOS rootfs script detects this condition and fails
+clearly instead of leaving a partial rootfs behind.
 
 The `integration/track-a-track-b-merge` branch has been verified with both the
 default and integration profiles on Linux.

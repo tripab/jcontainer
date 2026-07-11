@@ -5,14 +5,31 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 ROOTFS_DIR="$PROJECT_DIR/rootfs"
 SEEN_FILE="$(mktemp "${TMPDIR:-/tmp}/jcontainer-rootfs-seen.XXXXXX")"
+STAGING_DIR=""
 
 cleanup() {
     rm -f "$SEEN_FILE"
+    if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
+        rm -rf "$STAGING_DIR"
+    fi
 }
 trap cleanup EXIT
 
 if [ -d "$ROOTFS_DIR" ] && [ "$(ls -A "$ROOTFS_DIR" 2>/dev/null)" ]; then
-    echo "rootfs/ already exists and is non-empty. Remove it first to re-create."
+    missing_commands=""
+    for cmd in /bin/sh /bin/ls /bin/echo; do
+        if [ ! -x "$ROOTFS_DIR$cmd" ]; then
+            missing_commands="$missing_commands $cmd"
+        fi
+    done
+
+    if [ -n "$missing_commands" ]; then
+        echo "rootfs/ is incomplete; missing executable(s):$missing_commands" >&2
+        echo "Remove rootfs/ before attempting to recreate it." >&2
+        exit 1
+    fi
+
+    echo "rootfs/ already contains the required macOS test commands."
     exit 0
 fi
 
@@ -21,16 +38,16 @@ if ! command -v otool >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$ROOTFS_DIR"
+STAGING_DIR="$(mktemp -d "$PROJECT_DIR/.rootfs-macos.XXXXXX")"
 mkdir -p \
-    "$ROOTFS_DIR/bin" \
-    "$ROOTFS_DIR/dev" \
-    "$ROOTFS_DIR/etc" \
-    "$ROOTFS_DIR/private/tmp" \
-    "$ROOTFS_DIR/usr/lib" \
-    "$ROOTFS_DIR/var"
+    "$STAGING_DIR/bin" \
+    "$STAGING_DIR/dev" \
+    "$STAGING_DIR/etc" \
+    "$STAGING_DIR/private/tmp" \
+    "$STAGING_DIR/usr/lib" \
+    "$STAGING_DIR/var"
 
-ln -s private/tmp "$ROOTFS_DIR/tmp"
+ln -s private/tmp "$STAGING_DIR/tmp"
 
 is_seen() {
     grep -Fxq "$1" "$SEEN_FILE" 2>/dev/null
@@ -51,7 +68,7 @@ PY
 
 copy_node() {
     local src="$1"
-    local dest="$ROOTFS_DIR$src"
+    local dest="$STAGING_DIR$src"
 
     mkdir -p "$(dirname "$dest")"
 
@@ -70,6 +87,13 @@ copy_binary_tree() {
     local dep=""
 
     if [ ! -e "$src" ] && [ ! -L "$src" ]; then
+        if command -v dyld_info >/dev/null 2>&1 \
+                && dyld_info -dependents "$src" >/dev/null 2>&1; then
+            echo "Required dependency is available only in the macOS dyld shared cache: $src" >&2
+            echo "A lightweight executable chroot cannot be assembled from host files on this macOS version." >&2
+            echo "Run payload integration tests on Linux; macOS integration covers degraded-mode behavior only." >&2
+            exit 1
+        fi
         echo "Required path does not exist: $src" >&2
         exit 1
     fi
@@ -111,6 +135,15 @@ echo "Creating a macOS-compatible chroot rootfs..."
 for cmd in /bin/sh /bin/ls /bin/echo; do
     copy_binary_tree "$cmd"
 done
+
+if [ -d "$ROOTFS_DIR" ]; then
+    if ! rmdir "$ROOTFS_DIR" 2>/dev/null; then
+        echo "rootfs/ appeared during setup and is not empty; refusing to replace it." >&2
+        exit 1
+    fi
+fi
+mv "$STAGING_DIR" "$ROOTFS_DIR"
+STAGING_DIR=""
 
 echo "Done. macOS rootfs is ready at: $ROOTFS_DIR"
 echo "Included commands: /bin/sh, /bin/ls, /bin/echo"

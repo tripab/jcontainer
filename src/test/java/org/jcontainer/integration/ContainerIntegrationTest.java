@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for the container runtime.
  * These require:
- * - A populated rootfs/ directory (run setup-rootfs scripts first)
+ * - A populated rootfs/ directory for Linux payload tests
  * - Root privileges (sudo)
  * - The project to be built (mvn package)
  *
@@ -74,7 +74,7 @@ class ContainerIntegrationTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void testContainerSeesIsolatedFilesystem() throws Exception {
         requireRootfs("rootfs/ directory not found. Run setup-rootfs script first.");
         ProcessResult result = runContainer("/bin/ls", "/");
@@ -115,7 +115,7 @@ class ContainerIntegrationTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void testContainerExitCode() throws Exception {
         requireRootfs("rootfs/ directory not found.");
         ProcessResult result = runContainer("/bin/sh", "-c", "exit 42");
@@ -123,7 +123,7 @@ class ContainerIntegrationTest {
     }
 
     @Test
-    @EnabledOnOs({OS.LINUX, OS.MAC})
+    @EnabledOnOs(OS.LINUX)
     void testContainerStdout() throws Exception {
         requireRootfs("rootfs/ directory not found.");
         ProcessResult result = runContainer("/bin/echo", "hello");
@@ -134,10 +134,19 @@ class ContainerIntegrationTest {
     @Test
     @EnabledOnOs(OS.MAC)
     void testMacOSWarning() throws Exception {
-        requireRootfs("rootfs/ directory not found.");
-        ProcessResult result = runContainer("/bin/echo", "test");
+        // Standard macOS executables depend on the host dyld shared cache, so a
+        // lightweight chroot cannot execute /bin/echo. Use an empty rootfs and
+        // verify the degraded-mode warning independently of payload execution.
+        ProcessResult result = runJContainer(
+                "run", tempDir.toString(), "/bin/jcontainer-missing-payload");
+
+        assertNotEquals(0, result.exitCode(),
+                "the intentionally missing payload should fail");
         assertTrue(result.stderr().contains("macOS") || result.stderr().contains("limited"),
                 "macOS should print an isolation warning. stderr: " + result.stderr());
+        assertTrue(result.stderr().contains("Executable not found inside the container rootfs"),
+                "the child should enter the chroot before resolving the missing payload. stderr: "
+                        + result.stderr());
     }
 
     @Test
@@ -255,7 +264,6 @@ class ContainerIntegrationTest {
     @Test
     @EnabledOnOs(OS.MAC)
     void testMacOSRunWithSeccompPolicyFailsUnsupported() throws Exception {
-        requireRootfs("rootfs/ directory not found.");
         Path policyPath = tempDir.resolve("policy.json");
         new SeccompPolicy(
                 SeccompPolicy.SUPPORTED_VERSION,
@@ -267,7 +275,8 @@ class ContainerIntegrationTest {
         ).save(policyPath);
 
         ProcessResult result = runJContainer(
-                "run", "--seccomp-policy", policyPath.toString(), ROOTFS, "/bin/echo", "hello");
+                "run", "--seccomp-policy", policyPath.toString(),
+                tempDir.toString(), "/bin/echo", "hello");
 
         assertNotEquals(0, result.exitCode());
         assertTrue(result.stderr().contains("Seccomp policies are only supported on Linux"),
@@ -277,11 +286,11 @@ class ContainerIntegrationTest {
     @Test
     @EnabledOnOs(OS.MAC)
     void testMacOSProfileFailsUnsupported() throws Exception {
-        requireRootfs("rootfs/ directory not found.");
         Path output = tempDir.resolve("policy.json");
 
         ProcessResult result = runJContainer(
-                "profile", "--output", output.toString(), ROOTFS, "/bin/echo", "hello");
+                "profile", "--output", output.toString(),
+                tempDir.toString(), "/bin/echo", "hello");
 
         assertNotEquals(0, result.exitCode());
         assertTrue(result.stderr().contains("Profile command is only supported on Linux"),
